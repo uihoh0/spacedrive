@@ -1,21 +1,19 @@
-use crate::{invalidate_query, library::Library, object::media::thumbnail::get_indexed_thumb_key};
+use crate::{invalidate_query, library::Library};
 
-use sd_prisma::prisma::{label, label_on_object, object, SortOrder};
+use sd_core_heavy_lifting::media_processor::ThumbKey;
+use sd_core_prisma_helpers::{label_with_objects, CasId};
+
+use sd_prisma::{
+	prisma::{label, label_on_object, object, SortOrder},
+	prisma_sync,
+};
+use sd_sync::OperationFactory;
 
 use std::collections::BTreeMap;
 
 use rspc::alpha::AlphaRouter;
 
 use super::{locations::ExplorerItem, utils::library, Ctx, R};
-
-label::include!((take: i64) => label_with_objects {
-	label_objects(vec![]).take(take): select {
-		object: select {
-			id
-			file_paths(vec![]).take(1)
-		}
-	}
-});
 
 pub(crate) fn mount() -> AlphaRouter<Ctx> {
 	R.router()
@@ -24,7 +22,6 @@ pub(crate) fn mount() -> AlphaRouter<Ctx> {
 				Ok(library.db.label().find_many(vec![]).exec().await?)
 			})
 		})
-		//
 		.procedure("listWithThumbnails", {
 			R.with2(library())
 				.query(|(_, library), cursor: label::name::Type| async move {
@@ -51,7 +48,9 @@ pub(crate) fn mount() -> AlphaRouter<Ctx> {
 									file_path_data
 										.cas_id
 										.as_ref()
-										.map(|cas_id| get_indexed_thumb_key(cas_id, library.id))
+										.map(CasId::from)
+										.map(CasId::into_owned)
+										.map(|cas_id| ThumbKey::new_indexed(cas_id, library.id))
 								}) // Filter out None values and transform each element to Vec<Vec<String>>
 								.collect::<Vec<_>>(), // Collect into Vec<Vec<Vec<String>>>
 						})
@@ -117,13 +116,56 @@ pub(crate) fn mount() -> AlphaRouter<Ctx> {
 		.procedure(
 			"delete",
 			R.with2(library())
-				.mutation(|(_, library), label_id: i32| async move {
-					library
-						.db
+				.mutation(|(_, library), label_id: label::id::Type| async move {
+					let Library { db, sync, .. } = library.as_ref();
+
+					let label = db
 						.label()
-						.delete(label::id::equals(label_id))
+						.find_unique(label::id::equals(label_id))
 						.exec()
-						.await?;
+						.await?
+						.ok_or_else(|| {
+							rspc::Error::new(
+								rspc::ErrorCode::NotFound,
+								"Label not found".to_string(),
+							)
+						})?;
+
+					let delete_ops = db
+						.label_on_object()
+						.find_many(vec![label_on_object::label_id::equals(label_id)])
+						.select(label_on_object::select!({ object: select { pub_id } }))
+						.exec()
+						.await?
+						.into_iter()
+						.map(|label_on_object| {
+							sync.relation_delete(prisma_sync::label_on_object::SyncId {
+								label: prisma_sync::label::SyncId {
+									name: label.name.clone(),
+								},
+								object: prisma_sync::object::SyncId {
+									pub_id: label_on_object.object.pub_id,
+								},
+							})
+						})
+						.collect::<Vec<_>>();
+
+					sync.write_ops(
+						db,
+						(
+							delete_ops,
+							db.label_on_object()
+								.delete_many(vec![label_on_object::label_id::equals(label_id)]),
+						),
+					)
+					.await?;
+
+					sync.write_op(
+						db,
+						sync.shared_delete(prisma_sync::label::SyncId { name: label.name }),
+						db.label().delete(label::id::equals(label_id)),
+					)
+					.await?;
 
 					invalidate_query!(library, "labels.list");
 

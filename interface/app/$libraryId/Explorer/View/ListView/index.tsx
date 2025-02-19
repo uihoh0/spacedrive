@@ -6,7 +6,12 @@ import React, { memo, useCallback, useEffect, useLayoutEffect, useRef, useState 
 import BasicSticky from 'react-sticky-el';
 import { useWindowEventListener } from 'rooks';
 import useResizeObserver from 'use-resize-observer';
-import { type ExplorerItem } from '@sd/client';
+import {
+	createOrdering,
+	getOrderingDirection,
+	getOrderingKey,
+	type ExplorerItem
+} from '@sd/client';
 import { ContextMenu } from '@sd/ui';
 import { TruncatedText } from '~/components';
 import { useShortcut } from '~/hooks';
@@ -15,16 +20,22 @@ import { isNonEmptyObject } from '~/util';
 import { useLayoutContext } from '../../../Layout/Context';
 import { useExplorerContext } from '../../Context';
 import { getQuickPreviewStore, useQuickPreviewStore } from '../../QuickPreview/store';
-import { createOrdering, getOrderingDirection, orderingKey } from '../../store';
 import { uniqueId } from '../../util';
 import { useExplorerViewContext } from '../Context';
 import { useDragScrollable } from '../useDragScrollable';
 import { TableContext } from './context';
 import { TableRow } from './TableRow';
 import { getRangeDirection, Range, useRanges } from './useRanges';
-import { useTable } from './useTable';
+import {
+	DEFAULT_LIST_VIEW_ICON_SIZE,
+	DEFAULT_LIST_VIEW_TEXT_SIZE,
+	LIST_VIEW_ICON_SIZES,
+	LIST_VIEW_TEXT_SIZES,
+	useTable
+} from './useTable';
 
-const ROW_HEIGHT = 45;
+const ROW_HEIGHT = 37;
+const TABLE_HEADER_HEIGHT = 35;
 export const TABLE_PADDING_X = 16;
 export const TABLE_PADDING_Y = 12;
 
@@ -64,9 +75,11 @@ export const ListView = memo(() => {
 		getScrollElement: useCallback(() => explorer.scrollRef.current, [explorer.scrollRef]),
 		estimateSize: useCallback(() => ROW_HEIGHT, []),
 		paddingStart: TABLE_PADDING_Y,
-		paddingEnd: TABLE_PADDING_Y + (explorerView.bottom ?? 0),
+		paddingEnd: TABLE_PADDING_Y + (explorerView.scrollPadding?.bottom ?? 0),
 		scrollMargin: listOffset,
-		overscan: explorer.overscan ?? 10
+		overscan: explorer.overscan ?? 10,
+		scrollPaddingStart: explorerView.scrollPadding?.top,
+		scrollPaddingEnd: TABLE_HEADER_HEIGHT + (explorerView.scrollPadding?.bottom ?? 0)
 	});
 
 	const virtualRows = rowVirtualizer.getVirtualItems();
@@ -81,269 +94,261 @@ export const ListView = memo(() => {
 		const rowIndex = row.index;
 		const item = row.original;
 
-		if (explorer.allowMultiSelect) {
-			if (e.shiftKey) {
-				const range = getRangeByIndex(ranges.length - 1);
+		if (e.shiftKey) {
+			const range = getRangeByIndex(ranges.length - 1);
 
-				if (!range) {
-					const items = [...Array(rowIndex + 1)].reduce<ExplorerItem[]>((items, _, i) => {
-						const item = rows[i]?.original;
-						if (item) return [...items, item];
-						return items;
-					}, []);
+			if (!range) {
+				const items = [...Array(rowIndex + 1)].reduce<ExplorerItem[]>((items, _, i) => {
+					const item = rows[i]?.original;
+					if (item) return [...items, item];
+					return items;
+				}, []);
 
-					const [rangeStart] = items;
+				const [rangeStart] = items;
 
-					if (rangeStart) {
-						setRanges([[uniqueId(rangeStart), uniqueId(item)]]);
-					}
-
-					explorer.resetSelectedItems(items);
-					return;
+				if (rangeStart) {
+					setRanges([[uniqueId(rangeStart), uniqueId(item)]]);
 				}
 
-				const direction = getRangeDirection(range.end.index, rowIndex);
+				explorer.resetSelectedItems(items);
+				return;
+			}
 
-				if (!direction) return;
+			const direction = getRangeDirection(range.end.index, rowIndex);
 
-				const changeDirection =
-					!!range.direction &&
-					range.direction !== direction &&
-					(direction === 'down'
-						? rowIndex > range.start.index
-						: rowIndex < range.start.index);
+			if (!direction) return;
 
-				let _ranges = ranges;
+			const changeDirection =
+				!!range.direction &&
+				range.direction !== direction &&
+				(direction === 'down'
+					? rowIndex > range.start.index
+					: rowIndex < range.start.index);
 
-				const [backRange, frontRange] = getRangesByRow(range.start);
+			let _ranges = ranges;
 
-				if (backRange && frontRange) {
-					[
-						...Array(backRange.sorted.end.index - backRange.sorted.start.index + 1)
-					].forEach((_, i) => {
-						const index = backRange.sorted.start.index + i;
+			const [backRange, frontRange] = getRangesByRow(range.start);
 
-						if (index === range.start.index) return;
+			if (backRange && frontRange) {
+				for (let i = backRange.sorted.start.index; i <= backRange.sorted.end.index; i++) {
+					const index = backRange.sorted.start.index + i;
+
+					if (index === range.start.index) continue;
+
+					const row = rows[index];
+
+					if (row) explorer.removeSelectedItem(row.original);
+				}
+
+				_ranges = _ranges.filter((_, i) => i !== backRange.index);
+			}
+
+			for (
+				let i = 0;
+				i < Math.abs(range.end.index - rowIndex) + (changeDirection ? 1 : 0);
+				i++
+			) {
+				if (!range.direction || direction === range.direction) i += 1;
+
+				const index = range.end.index + (direction === 'down' ? i : -i);
+
+				const row = rows[index];
+
+				if (!row) continue;
+
+				const item = row.original;
+
+				if (uniqueId(item) === uniqueId(range.start.original)) continue;
+
+				if (
+					!range.direction ||
+					direction === range.direction ||
+					(changeDirection &&
+						(range.direction === 'down'
+							? index < range.start.index
+							: index > range.start.index))
+				) {
+					explorer.addSelectedItem(item);
+				} else {
+					explorer.removeSelectedItem(item);
+				}
+			}
+
+			let newRangeEnd = item;
+			let removeRangeIndex: number | null = null;
+
+			for (let i = 0; i < _ranges.length - 1; i++) {
+				const range = getRangeByIndex(i);
+
+				if (!range) continue;
+
+				if (rowIndex >= range.sorted.start.index && rowIndex <= range.sorted.end.index) {
+					const removableRowsCount = Math.abs(
+						(direction === 'down' ? range.sorted.end.index : range.sorted.start.index) -
+							rowIndex
+					);
+
+					for (let i = 1; i <= removableRowsCount; i++) {
+						const index = rowIndex + (direction === 'down' ? i : -i);
 
 						const row = rows[index];
 
 						if (row) explorer.removeSelectedItem(row.original);
-					});
-
-					_ranges = _ranges.filter((_, i) => i !== backRange.index);
-				}
-
-				[
-					...Array(Math.abs(range.end.index - rowIndex) + (changeDirection ? 1 : 0))
-				].forEach((_, i) => {
-					if (!range.direction || direction === range.direction) i += 1;
-
-					const index = range.end.index + (direction === 'down' ? i : -i);
-
-					const row = rows[index];
-
-					if (!row) return;
-
-					const item = row.original;
-
-					if (uniqueId(item) === uniqueId(range.start.original)) return;
-
-					if (
-						!range.direction ||
-						direction === range.direction ||
-						(changeDirection &&
-							(range.direction === 'down'
-								? index < range.start.index
-								: index > range.start.index))
-					) {
-						explorer.addSelectedItem(item);
-					} else explorer.removeSelectedItem(item);
-				});
-
-				let newRangeEnd = item;
-				let removeRangeIndex: number | null = null;
-
-				for (let i = 0; i < _ranges.length - 1; i++) {
-					const range = getRangeByIndex(i);
-
-					if (!range) continue;
-
-					if (
-						rowIndex >= range.sorted.start.index &&
-						rowIndex <= range.sorted.end.index
-					) {
-						const removableRowsCount = Math.abs(
-							(direction === 'down'
-								? range.sorted.end.index
-								: range.sorted.start.index) - rowIndex
-						);
-
-						[...Array(removableRowsCount)].forEach((_, i) => {
-							i += 1;
-
-							const index = rowIndex + (direction === 'down' ? i : -i);
-
-							const row = rows[index];
-
-							if (row) explorer.removeSelectedItem(row.original);
-						});
-
-						removeRangeIndex = i;
-						break;
-					} else if (direction === 'down' && rowIndex + 1 === range.sorted.start.index) {
-						newRangeEnd = range.sorted.end.original;
-						removeRangeIndex = i;
-						break;
-					} else if (direction === 'up' && rowIndex - 1 === range.sorted.end.index) {
-						newRangeEnd = range.sorted.start.original;
-						removeRangeIndex = i;
-						break;
 					}
+
+					removeRangeIndex = i;
+					break;
+				} else if (direction === 'down' && rowIndex + 1 === range.sorted.start.index) {
+					newRangeEnd = range.sorted.end.original;
+					removeRangeIndex = i;
+					break;
+				} else if (direction === 'up' && rowIndex - 1 === range.sorted.end.index) {
+					newRangeEnd = range.sorted.start.original;
+					removeRangeIndex = i;
+					break;
 				}
+			}
 
-				if (removeRangeIndex !== null) {
-					_ranges = _ranges.filter((_, i) => i !== removeRangeIndex);
-				}
+			if (removeRangeIndex !== null) {
+				_ranges = _ranges.filter((_, i) => i !== removeRangeIndex);
+			}
 
-				setRanges([
-					..._ranges.slice(0, _ranges.length - 1),
-					[uniqueId(range.start.original), uniqueId(newRangeEnd)]
-				]);
-			} else if (e.metaKey) {
-				if (explorer.selectedItems.has(item)) {
-					explorer.removeSelectedItem(item);
+			setRanges([
+				..._ranges.slice(0, _ranges.length - 1),
+				[uniqueId(range.start.original), uniqueId(newRangeEnd)]
+			]);
+		} else if (e.metaKey) {
+			if (explorer.selectedItems.has(item)) {
+				explorer.removeSelectedItem(item);
 
-					const rowRanges = getRangesByRow(row);
+				const rowRanges = getRangesByRow(row);
 
-					const range = rowRanges[0] || rowRanges[1];
+				const range = rowRanges[0] || rowRanges[1];
 
-					if (range) {
-						const rangeStart = range.sorted.start.original;
-						const rangeEnd = range.sorted.end.original;
+				if (range) {
+					const rangeStart = range.sorted.start.original;
+					const rangeEnd = range.sorted.end.original;
 
-						if (rangeStart === rangeEnd) {
-							const closestRange = getClosestRange(range.index);
-							if (closestRange) {
-								const _ranges = ranges.filter(
-									(_, i) => i !== closestRange.index && i !== range.index
-								);
-
-								const start = closestRange.sorted.start.original;
-								const end = closestRange.sorted.end.original;
-
-								setRanges([
-									..._ranges,
-									[
-										uniqueId(closestRange.direction === 'down' ? start : end),
-										uniqueId(closestRange.direction === 'down' ? end : start)
-									]
-								]);
-							} else {
-								setRanges([]);
-							}
-						} else if (rangeStart === item || rangeEnd === item) {
+					if (rangeStart === rangeEnd) {
+						const closestRange = getClosestRange(range.index);
+						if (closestRange) {
 							const _ranges = ranges.filter(
-								(_, i) => i !== range.index && i !== rowRanges[1]?.index
+								(_, i) => i !== closestRange.index && i !== range.index
 							);
 
-							const start =
-								rows[
-									rangeStart === item
-										? range.sorted.start.index + 1
-										: range.sorted.end.index - 1
-								]?.original;
-
-							if (start !== undefined) {
-								const end = rangeStart === item ? rangeEnd : rangeStart;
-
-								setRanges([..._ranges, [uniqueId(start), uniqueId(end)]]);
-							}
-						} else {
-							const rowBefore = rows[row.index - 1];
-							const rowAfter = rows[row.index + 1];
-
-							if (rowBefore && rowAfter) {
-								const firstRange = [
-									uniqueId(rangeStart),
-									uniqueId(rowBefore.original)
-								] satisfies Range;
-
-								const secondRange = [
-									uniqueId(rowAfter.original),
-									uniqueId(rangeEnd)
-								] satisfies Range;
-
-								const _ranges = ranges.filter(
-									(_, i) => i !== range.index && i !== rowRanges[1]?.index
-								);
-
-								setRanges([..._ranges, firstRange, secondRange]);
-							}
-						}
-					}
-				} else {
-					explorer.addSelectedItem(item);
-
-					const itemRange: Range = [uniqueId(item), uniqueId(item)];
-
-					const _ranges = [...ranges, itemRange];
-
-					const rangeDown = getClosestRange(_ranges.length - 1, {
-						direction: 'down',
-						maxRowDifference: 0,
-						ranges: _ranges
-					});
-
-					const rangeUp = getClosestRange(_ranges.length - 1, {
-						direction: 'up',
-						maxRowDifference: 0,
-						ranges: _ranges
-					});
-
-					if (rangeDown && rangeUp) {
-						const _ranges = ranges.filter(
-							(_, i) => i !== rangeDown.index && i !== rangeUp.index
-						);
-
-						setRanges([
-							..._ranges,
-							[
-								uniqueId(rangeUp.sorted.start.original),
-								uniqueId(rangeDown.sorted.end.original)
-							],
-							itemRange
-						]);
-					} else if (rangeUp || rangeDown) {
-						const closestRange = rangeDown || rangeUp;
-
-						if (closestRange) {
-							const _ranges = ranges.filter((_, i) => i !== closestRange.index);
+							const start = closestRange.sorted.start.original;
+							const end = closestRange.sorted.end.original;
 
 							setRanges([
 								..._ranges,
 								[
-									uniqueId(item),
-									uniqueId(
-										closestRange.direction === 'down'
-											? closestRange.sorted.end.original
-											: closestRange.sorted.start.original
-									)
+									uniqueId(closestRange.direction === 'down' ? start : end),
+									uniqueId(closestRange.direction === 'down' ? end : start)
 								]
 							]);
+						} else {
+							setRanges([]);
+						}
+					} else if (rangeStart === item || rangeEnd === item) {
+						const _ranges = ranges.filter(
+							(_, i) => i !== range.index && i !== rowRanges[1]?.index
+						);
+
+						const start =
+							rows[
+								rangeStart === item
+									? range.sorted.start.index + 1
+									: range.sorted.end.index - 1
+							]?.original;
+
+						if (start !== undefined) {
+							const end = rangeStart === item ? rangeEnd : rangeStart;
+
+							setRanges([..._ranges, [uniqueId(start), uniqueId(end)]]);
 						}
 					} else {
-						setRanges([...ranges, itemRange]);
+						const rowBefore = rows[row.index - 1];
+						const rowAfter = rows[row.index + 1];
+
+						if (rowBefore && rowAfter) {
+							const firstRange = [
+								uniqueId(rangeStart),
+								uniqueId(rowBefore.original)
+							] satisfies Range;
+
+							const secondRange = [
+								uniqueId(rowAfter.original),
+								uniqueId(rangeEnd)
+							] satisfies Range;
+
+							const _ranges = ranges.filter(
+								(_, i) => i !== range.index && i !== rowRanges[1]?.index
+							);
+
+							setRanges([..._ranges, firstRange, secondRange]);
+						}
 					}
 				}
 			} else {
-				if (explorer.isItemSelected(item)) return;
+				explorer.addSelectedItem(item);
 
-				explorer.resetSelectedItems([item]);
-				const hash = uniqueId(item);
-				setRanges([[hash, hash]]);
+				const itemRange: Range = [uniqueId(item), uniqueId(item)];
+
+				const _ranges = [...ranges, itemRange];
+
+				const rangeDown = getClosestRange(_ranges.length - 1, {
+					direction: 'down',
+					maxRowDifference: 0,
+					ranges: _ranges
+				});
+
+				const rangeUp = getClosestRange(_ranges.length - 1, {
+					direction: 'up',
+					maxRowDifference: 0,
+					ranges: _ranges
+				});
+
+				if (rangeDown && rangeUp) {
+					const _ranges = ranges.filter(
+						(_, i) => i !== rangeDown.index && i !== rangeUp.index
+					);
+
+					setRanges([
+						..._ranges,
+						[
+							uniqueId(rangeUp.sorted.start.original),
+							uniqueId(rangeDown.sorted.end.original)
+						],
+						itemRange
+					]);
+				} else if (rangeUp || rangeDown) {
+					const closestRange = rangeDown || rangeUp;
+
+					if (closestRange) {
+						const _ranges = ranges.filter((_, i) => i !== closestRange.index);
+
+						setRanges([
+							..._ranges,
+							[
+								uniqueId(item),
+								uniqueId(
+									closestRange.direction === 'down'
+										? closestRange.sorted.end.original
+										: closestRange.sorted.start.original
+								)
+							]
+						]);
+					}
+				} else {
+					setRanges([...ranges, itemRange]);
+				}
 			}
 		} else {
+			if (explorer.isItemSelected(item)) return;
+
 			explorer.resetSelectedItems([item]);
+			const hash = uniqueId(item);
+			setRanges([[hash, hash]]);
 		}
 	};
 
@@ -361,45 +366,11 @@ export const ListView = memo(() => {
 
 	const scrollToRow = useCallback(
 		(row: Row<ExplorerItem>) => {
-			if (!explorer.scrollRef.current || !tableBodyRef.current) return;
-
-			const scrollRect = explorer.scrollRef.current.getBoundingClientRect();
-
-			const tableTop =
-				scrollRect.top +
-				(explorerView.top ??
-					parseInt(getComputedStyle(explorer.scrollRef.current).paddingTop)) +
-				(explorer.scrollRef.current.scrollTop > top ? 36 : 0);
-
-			const rowTop =
-				scrollRect.top +
-				row.index * ROW_HEIGHT +
-				rowVirtualizer.options.paddingStart +
-				tableBodyRef.current.getBoundingClientRect().top;
-
-			const rowBottom = rowTop + ROW_HEIGHT;
-
-			if (rowTop < tableTop) {
-				const scrollBy = rowTop - tableTop - (row.index === 0 ? TABLE_PADDING_Y : 0);
-				explorer.scrollRef.current.scrollBy({ top: scrollBy });
-			} else if (rowBottom > scrollRect.height - (explorerView.bottom ?? 0)) {
-				const scrollBy =
-					rowBottom -
-					scrollRect.height +
-					(explorerView.bottom ?? 0) +
-					(row.index === rows.length - 1 ? TABLE_PADDING_Y : 0);
-
-				explorer.scrollRef.current.scrollBy({ top: scrollBy });
-			}
+			rowVirtualizer.scrollToIndex(row.index, {
+				align: row.index === 0 ? 'end' : row.index === rows.length - 1 ? 'start' : 'auto'
+			});
 		},
-		[
-			explorer.scrollRef,
-			explorerView.bottom,
-			explorerView.top,
-			rowVirtualizer.options.paddingStart,
-			rows.length,
-			top
-		]
+		[rowVirtualizer, rows.length]
 	);
 
 	const keyboardHandler = (e: KeyboardEvent, direction: 'ArrowDown' | 'ArrowUp') => {
@@ -428,135 +399,145 @@ export const ListView = memo(() => {
 
 		const item = nextRow.original;
 
-		if (explorer.allowMultiSelect) {
-			if (e.shiftKey && !getQuickPreviewStore().open) {
-				const direction = range.direction || keyDirection;
+		if (e.shiftKey && !getQuickPreviewStore().open) {
+			const direction = range.direction || keyDirection;
 
-				const [backRange, frontRange] = getRangesByRow(range.start);
+			const [backRange, frontRange] = getRangesByRow(range.start);
 
-				if (
-					range.direction
-						? keyDirection !== range.direction
-						: backRange?.direction &&
-						  (backRange.sorted.start.index === frontRange?.sorted.start.index ||
-								backRange.sorted.end.index === frontRange?.sorted.end.index)
-				) {
-					explorer.removeSelectedItem(range.end.original);
+			if (
+				range.direction
+					? keyDirection !== range.direction
+					: backRange?.direction &&
+						(backRange.sorted.start.index === frontRange?.sorted.start.index ||
+							backRange.sorted.end.index === frontRange?.sorted.end.index)
+			) {
+				explorer.removeSelectedItem(range.end.original);
 
-					if (backRange && frontRange) {
-						let _ranges = [...ranges];
+				if (backRange && frontRange) {
+					let _ranges = [...ranges];
 
-						_ranges[backRange.index] = [
-							uniqueId(
-								backRange.direction !== keyDirection
-									? backRange.start.original
-									: nextRow.original
-							),
-							uniqueId(
-								backRange.direction !== keyDirection
-									? nextRow.original
-									: backRange.end.original
-							)
-						];
+					_ranges[backRange.index] = [
+						uniqueId(
+							backRange.direction !== keyDirection
+								? backRange.start.original
+								: nextRow.original
+						),
+						uniqueId(
+							backRange.direction !== keyDirection
+								? nextRow.original
+								: backRange.end.original
+						)
+					];
 
-						if (
-							nextRow.index === backRange.start.index ||
-							nextRow.index === backRange.end.index
-						) {
-							_ranges = _ranges.filter((_, i) => i !== frontRange.index);
-						} else {
-							_ranges[frontRange.index] =
-								frontRange.start.index === frontRange.end.index
-									? [uniqueId(nextRow.original), uniqueId(nextRow.original)]
-									: [
-											uniqueId(frontRange.start.original),
-											uniqueId(nextRow.original)
-									  ];
-						}
-
-						setRanges(_ranges);
+					if (
+						nextRow.index === backRange.start.index ||
+						nextRow.index === backRange.end.index
+					) {
+						_ranges = _ranges.filter((_, i) => i !== frontRange.index);
 					} else {
-						setRanges([
-							...ranges.slice(0, ranges.length - 1),
-							[uniqueId(range.start.original), uniqueId(nextRow.original)]
-						]);
+						_ranges[frontRange.index] =
+							frontRange.start.index === frontRange.end.index
+								? [uniqueId(nextRow.original), uniqueId(nextRow.original)]
+								: [uniqueId(frontRange.start.original), uniqueId(nextRow.original)];
 					}
+
+					setRanges(_ranges);
 				} else {
-					explorer.addSelectedItem(item);
-
-					let rangeEndRow = nextRow;
-
-					const closestRange = getClosestRange(range.index, {
-						maxRowDifference: 1,
-						direction
-					});
-
-					if (closestRange) {
-						rangeEndRow =
-							direction === 'down'
-								? closestRange.sorted.end
-								: closestRange.sorted.start;
-					}
-
-					if (backRange && frontRange) {
-						let _ranges = [...ranges];
-
-						const backRangeStart = backRange.start.original;
-
-						const backRangeEnd =
-							rangeEndRow.index < backRange.sorted.start.index ||
-							rangeEndRow.index > backRange.sorted.end.index
-								? rangeEndRow.original
-								: backRange.end.original;
-
-						_ranges[backRange.index] = [
-							uniqueId(backRangeStart),
-							uniqueId(backRangeEnd)
-						];
-
-						if (
-							backRange.direction !== direction &&
-							(rangeEndRow.original === backRangeStart ||
-								rangeEndRow.original === backRangeEnd)
-						) {
-							_ranges[backRange.index] =
-								rangeEndRow.original === backRangeStart
-									? [uniqueId(backRangeEnd), uniqueId(backRangeStart)]
-									: [uniqueId(backRangeStart), uniqueId(backRangeEnd)];
-						}
-
-						_ranges[frontRange.index] = [
-							uniqueId(frontRange.start.original),
-							uniqueId(rangeEndRow.original)
-						];
-
-						if (closestRange) {
-							_ranges = _ranges.filter((_, i) => i !== closestRange.index);
-						}
-
-						setRanges(_ranges);
-					} else {
-						const _ranges = closestRange
-							? ranges.filter((_, i) => i !== closestRange.index && i !== range.index)
-							: ranges;
-
-						setRanges([
-							..._ranges.slice(0, _ranges.length - 1),
-							[uniqueId(range.start.original), uniqueId(rangeEndRow.original)]
-						]);
-					}
+					setRanges([
+						...ranges.slice(0, ranges.length - 1),
+						[uniqueId(range.start.original), uniqueId(nextRow.original)]
+					]);
 				}
 			} else {
-				explorer.resetSelectedItems([item]);
-				const hash = uniqueId(item);
-				setRanges([[hash, hash]]);
+				explorer.addSelectedItem(item);
+
+				let rangeEndRow = nextRow;
+
+				const closestRange = getClosestRange(range.index, {
+					maxRowDifference: 1,
+					direction
+				});
+
+				if (closestRange) {
+					rangeEndRow =
+						direction === 'down' ? closestRange.sorted.end : closestRange.sorted.start;
+				}
+
+				if (backRange && frontRange) {
+					let _ranges = [...ranges];
+
+					const backRangeStart = backRange.start.original;
+
+					const backRangeEnd =
+						rangeEndRow.index < backRange.sorted.start.index ||
+						rangeEndRow.index > backRange.sorted.end.index
+							? rangeEndRow.original
+							: backRange.end.original;
+
+					_ranges[backRange.index] = [uniqueId(backRangeStart), uniqueId(backRangeEnd)];
+
+					if (
+						backRange.direction !== direction &&
+						(rangeEndRow.original === backRangeStart ||
+							rangeEndRow.original === backRangeEnd)
+					) {
+						_ranges[backRange.index] =
+							rangeEndRow.original === backRangeStart
+								? [uniqueId(backRangeEnd), uniqueId(backRangeStart)]
+								: [uniqueId(backRangeStart), uniqueId(backRangeEnd)];
+					}
+
+					_ranges[frontRange.index] = [
+						uniqueId(frontRange.start.original),
+						uniqueId(rangeEndRow.original)
+					];
+
+					if (closestRange) {
+						_ranges = _ranges.filter((_, i) => i !== closestRange.index);
+					}
+
+					setRanges(_ranges);
+				} else {
+					const _ranges = closestRange
+						? ranges.filter((_, i) => i !== closestRange.index && i !== range.index)
+						: ranges;
+
+					setRanges([
+						..._ranges.slice(0, _ranges.length - 1),
+						[uniqueId(range.start.original), uniqueId(rangeEndRow.original)]
+					]);
+				}
 			}
-		} else explorer.resetSelectedItems([item]);
+		} else {
+			explorer.resetSelectedItems([item]);
+			const hash = uniqueId(item);
+			setRanges([[hash, hash]]);
+		}
 
 		scrollToRow(nextRow);
 	};
 
 	useEffect(() => setRanges([]), [explorerSettings.order]);
+
+	useEffect(() => {
+		if (explorer.selectedItems.size === 0) setRanges([]);
+	}, [explorer.selectedItems]);
+
+	useEffect(() => {
+		// Reset icon size if it's not a valid size
+		if (!LIST_VIEW_ICON_SIZES[explorerSettings.listViewIconSize]) {
+			explorer.settingsStore.listViewIconSize = DEFAULT_LIST_VIEW_ICON_SIZE;
+		}
+
+		// Reset text size if it's not a valid size
+		if (!LIST_VIEW_TEXT_SIZES[explorerSettings.listViewTextSize]) {
+			explorer.settingsStore.listViewTextSize = DEFAULT_LIST_VIEW_TEXT_SIZE;
+		}
+	}, [
+		explorer.settingsStore,
+		explorerSettings.listViewIconSize,
+		explorerSettings.listViewTextSize
+	]);
 
 	useEffect(() => {
 		if (!getQuickPreviewStore().open || explorer.selectedItems.size !== 1) return;
@@ -680,12 +661,6 @@ export const ListView = memo(() => {
 		};
 	}, [sized, isLeftMouseDown, quickPreview.open]);
 
-	useShortcut('explorerEscape', () => {
-		if (!explorerView.selectable || explorer.selectedItems.size === 0) return;
-		explorer.resetSelectedItems([]);
-		setRanges([]);
-	});
-
 	useShortcut('explorerUp', (e) => {
 		keyboardHandler(e, 'ArrowUp');
 	});
@@ -744,7 +719,7 @@ export const ListView = memo(() => {
 
 		const observer = new MutationObserver(() => {
 			setTop(
-				explorerView.top ??
+				explorerView.scrollPadding?.top ??
 					parseInt(getComputedStyle(element).paddingTop) +
 						element.getBoundingClientRect().top
 			);
@@ -757,10 +732,35 @@ export const ListView = memo(() => {
 		});
 
 		return () => observer.disconnect();
-	}, [explorer.scrollRef, explorerView.top]);
+	}, [explorer.scrollRef, explorerView.scrollPadding?.top]);
 
 	// Set list offset
 	useLayoutEffect(() => setListOffset(tableRef.current?.offsetTop ?? 0), []);
+
+	// Handle active item selection
+	// TODO: This is a temporary solution
+	useEffect(() => {
+		return () => {
+			const firstRange = getRangeByIndex(0);
+			if (!firstRange) return;
+
+			const lastRange = getRangeByIndex(ranges.length - 1);
+			if (!lastRange) return;
+
+			const firstItem = firstRange.start.original;
+			const lastItem = lastRange.end.original;
+
+			explorerView.updateFirstActiveItem(explorer.getItemUniqueId(firstItem));
+			explorerView.updateActiveItem(explorer.getItemUniqueId(lastItem));
+		};
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [
+		ranges,
+		getRangeByIndex,
+		explorerView.updateFirstActiveItem,
+		explorerView.updateActiveItem,
+		explorer.getItemUniqueId
+	]);
 
 	return (
 		<TableContext.Provider value={{ columnSizing }}>
@@ -800,6 +800,7 @@ export const ListView = memo(() => {
 												? 'overflow-hidden'
 												: 'no-scrollbar overflow-x-auto overscroll-x-none'
 										)}
+										style={{ height: TABLE_HEADER_HEIGHT }}
 									>
 										{table.getHeaderGroups().map((headerGroup) => (
 											<div key={headerGroup.id} className="flex w-fit">
@@ -808,18 +809,18 @@ export const ListView = memo(() => {
 
 													const orderKey =
 														explorerSettings.order &&
-														orderingKey(explorerSettings.order);
+														getOrderingKey(explorerSettings.order);
 
 													const orderingDirection =
 														orderKey &&
 														explorerSettings.order &&
 														(orderKey.startsWith('object.')
 															? orderKey.split('object.')[1] ===
-															  header.id
+																header.id
 															: orderKey === header.id)
 															? getOrderingDirection(
 																	explorerSettings.order
-															  )
+																)
 															: null;
 
 													const cellContent = flexRender(
@@ -867,7 +868,8 @@ export const ListView = memo(() => {
 																			)
 																				? value.split(
 																						'object.'
-																				  )[1] === header.id
+																					)[1] ===
+																						header.id
 																				: value ===
 																						header.id;
 																		}
@@ -960,35 +962,40 @@ export const ListView = memo(() => {
 								className="relative"
 								style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
 							>
-								{virtualRows.map((virtualRow) => {
-									const row = rows[virtualRow.index];
-									if (!row) return null;
+								<div
+									className="absolute left-0 top-0 min-w-full"
+									style={{
+										transform: `translateY(${
+											(virtualRows[0]?.start ?? 0) -
+											rowVirtualizer.options.scrollMargin
+										}px)`
+									}}
+								>
+									{virtualRows.map((virtualRow) => {
+										const row = rows[virtualRow.index];
+										if (!row) return null;
 
-									const previousRow = rows[virtualRow.index - 1];
-									const nextRow = rows[virtualRow.index + 1];
+										const previousRow = rows[virtualRow.index - 1];
+										const nextRow = rows[virtualRow.index + 1];
 
-									return (
-										<div
-											key={row.id}
-											className="absolute left-0 top-0 min-w-full"
-											style={{
-												height: virtualRow.size,
-												transform: `translateY(${
-													virtualRow.start -
-													rowVirtualizer.options.scrollMargin
-												}px)`
-											}}
-											onMouseDown={(e) => handleRowClick(e, row)}
-											onContextMenu={() => handleRowContextMenu(row)}
-										>
-											<TableRow
-												row={row}
-												previousRow={previousRow}
-												nextRow={nextRow}
-											/>
-										</div>
-									);
-								})}
+										return (
+											<div
+												key={virtualRow.key}
+												data-index={virtualRow.index}
+												ref={rowVirtualizer.measureElement}
+												className="relative"
+												onMouseDown={(e) => handleRowClick(e, row)}
+												onContextMenu={() => handleRowContextMenu(row)}
+											>
+												<TableRow
+													row={row}
+													previousRow={previousRow}
+													nextRow={nextRow}
+												/>
+											</div>
+										);
+									})}
+								</div>
 							</div>
 						</div>
 					</>

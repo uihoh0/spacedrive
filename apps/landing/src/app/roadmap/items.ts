@@ -1,4 +1,10 @@
-export const items = [
+export const items: {
+	when?: string;
+	subtext?: string;
+	completed?: boolean;
+	title: string;
+	description: string;
+}[] = [
 	{
 		when: 'Big Bang',
 		subtext: 'Q1 2022',
@@ -33,7 +39,7 @@ export const items = [
 		completed: true,
 		title: 'Self hosting',
 		description:
-			'Spacedrive can be deployed as a service, behaving as just another device powering your personal cloud.'
+			'Spacedrive can be deployed as a service via Docker, behaving as just another device powering your personal cloud.'
 	},
 	{
 		completed: true,
@@ -44,71 +50,222 @@ export const items = [
 	{
 		completed: true,
 		title: 'Search',
-		description: 'Deep search into your filesystem with a keybind, including offline locations.'
+		description:
+			'Instantly search your library, including offline locations. Use advanced filters to refine and save searches for later.'
 	},
 	{
 		completed: true,
-		title: 'Media View',
+		title: 'Quick view',
+		description:
+			'View images, videos and documents in a full screen modal with nested inspector and context switcher.'
+	},
+	{
+		completed: true,
+		title: 'Media view',
 		description: 'Turn any directory into a camera roll including media from subdirectories'
 	},
 	{
-		when: '0.1.0 Alpha',
-		subtext: 'Oct 2023',
-		title: 'Key manager',
-		description:
-			'View, mount, unmount and hide keys. Mounted keys can be used to instantly encrypt and decrypt any files on your node.'
-	},
-	{
-		when: '0.2.0',
+		completed: true,
 		title: 'Spacedrop',
 		description: 'Drop files between devices and contacts on a keybind like AirDrop.'
 	},
 	{
-		title: 'Realtime library synchronization',
-		description: 'Automatically synchronized libraries across devices via P2P connections.'
+		when: '0.2 Alpha',
+		subtext: 'February 2024',
+		title: 'Drag & drop',
+		completed: true,
+		description: 'Drag and drop files between devices and drives.'
 	},
 	{
-		when: '0.3.0',
-		title: 'Cloud integration',
+		title: 'Language support',
+		completed: true,
+		description: 'Support for 12+ languages, with a community-driven translation via i18n.'
+	},
+	{
+		title: 'Command Palette',
+		completed: true,
+		description: 'Quickly navigate to any file or folder from anywhere in the app.'
+	},
+	{
+		title: 'Resizable Sidebar',
+		completed: true,
 		description:
-			'Index & backup to Apple Photos, Google Drive, Dropbox, OneDrive & Mega + easy API for the community to add more.'
+			'Customize the sidebar width to your liking, with a toggle to hide it completely.'
 	},
 	{
-		title: 'Media encoder',
+		when: '0.3 Alpha',
+		subtext: 'May 2024',
+		title: 'Media File Metadata',
+		description: 'View metadata for media files, for all common formats.',
+		completed: true
+	},
+	{
+		title: 'Move to Trash',
+		completed: true,
 		description:
-			'Encode video and audio into various formats, use Tags to automate. Built with FFmpeg.'
+			'Have the option to move files and folders to the trash, instead of deleting them permanently.'
 	},
 	{
-		title: 'Hosted Spaces',
-		description: 'Host select Spaces on our cloud to share with friends or publish on the web.'
+		title: 'Tag Assign Mode',
+		completed: true,
+		description: 'Assign tags to multiple files and folders at once with hotkeys.'
 	},
 	{
-		when: '0.6.0 Beta',
-		subtext: 'Q3 2023',
+		title: 'Estimated time remaining for Jobs',
+		completed: true,
+		description: 'See how long a job will take to complete.'
+	},
+	{
+		when: '0.4 Alpha',
+		subtext: 'June 2024',
+		title: 'Local Server Protection',
+		completed: true,
+		description:
+			"Protect local instances of Spacedrive's server from other clients on your network."
+	},
+	{
+		title: 'Multi-device FS Actions',
+		completed: true,
+		description:
+			'Support for creating, copying, moving, renaming, and deleting files and folders between devices.'
+	},
+	{
+		title: 'OS Drag & Drop',
+		completed: true,
+		description: 'Drag and drop files and folders to and from the operating system.'
+	},
+	{
+		title: 'New Overview Design',
+		description:
+			'New Overview design with a focus on the most important information about your library.',
+		completed: true,
+	},
+	{
+		when: '0.5 Beta',
+		subtext: 'To be determined',
+		title: 'Video thumbstrips',
+		completed: false,
+		description:
+			'Generate and display thumbstrips for videos, with a scrubber to preview the video.'
+	},
+	{
+		title: 'Spacedrive Cloud',
+		completed: false,
+		description:
+			'Sync your library to the cloud, to be accessed from anywhere (mobile & desktop apps).'
+	},
+	{
+		title: 'Peer-to-Peer Sync',
+		completed: false,
+		description:
+			'Sync & Fetch files from your library with other devices on your local network.'
+	},
+	{
+		title: 'iOS & Android release',
+		completed: false,
+		description:
+			'Spacedrive will be available on the App Store and Google Play Store (TestFlight to start).'
+	},
+	{
+		title: '3rd-Party Authentication',
+		completed: false,
+		description: 'Authenticate with Spacedrive using your Google, Apple, or Github accounts.'
+	},
+	{
+		title: 'AI Object Detection',
+		completed: false,
+		description: 'Identify objects in images and videos assigning system labels.'
+	},
+	{
+		title: 'OCR Text Extraction',
+		completed: false,
+		description: 'Extract text from images and PDFs, and documents.'
+	},
+	{
+		title: 'AI Search',
+		completed: false,
+		description:
+			'Search the contents of your files, including images, audio and video with a deep understanding of context and content.'
+	},
+	{
+		title: 'Comments',
+		completed: false,
+		description:
+			'Add comments to files and folders, with support for XY coordinates for photos and timestamp for videos.'
+	},
+	{
+		when: '0.6 Beta',
+		subtext: 'To be determined',
+		title: 'Third-party cloud integrations',
+		completed: false,
+		description:
+			'Filesystem integrations with iCloud, Google Drive, Dropbox, OneDrive & Mega + easy API for the community to add more.'
+	},
+	{
+		title: 'Organizer',
+		completed: false,
+		description: 'Natural language file management.'
+	},
+	{
+		title: 'Column view',
+		completed: false,
+		description: 'View files in the beloved column layout with a nested inspector, with trees!'
+	},
+	{
 		title: 'Extensions',
+		completed: false,
 		description:
-			'Build tools on top of Spacedrive, extend functionality and integrate third party services. Extension directory on spacedrive.com/extensions.'
+			'Build tools on top of Spacedrive, extend functionality and integrate third party services.'
 	},
 	{
-		title: 'Encrypted vault(s)',
+		title: 'File versioning',
+		completed: false,
 		description:
-			'Effortlessly manage & encrypt sensitive files. Encrypt individual files or create flexible-size vaults.'
+			'Automatically save versions of files when they change, with a timeline view and the ability to restore.'
 	},
 	{
-		when: 'Release',
-		subtext: 'Q4 2023',
-		title: 'Timeline',
+		title: 'CLI',
+		completed: false,
 		description:
-			'View a linear timeline of content, travel to any time and see media represented visually.'
+			'Access Spacedrive from the command line, with a rich set of commands to manage your library and devices.'
 	},
 	{
-		title: 'Redundancy',
-		description:
-			'Ensure a specific amount of copies exist for your important data, discover at-risk files and monitor device/drive health.'
+		title: 'Advanced media analysis',
+		completed: false,
+		description: 'Transcribe audio, identify faces, video scenes and more.'
+	},
+
+	{
+		title: 'File converter',
+		completed: false,
+		description: 'Convert image and video between common formats from the context menu.'
 	},
 	{
-		title: 'Workers',
+		when: '1.0 Release',
+		subtext: 'To be determined',
+		title: 'Security audit',
+		completed: false,
 		description:
-			'Utilize the compute power of your devices in unison to encode and perform tasks at increased speeds.'
+			'We will hire a third party security firm to audit the codebase and ensure the highest level of security.'
+	},
+	{
+		when: 'The Future',
+		subtext: 'To be determined',
+		title: 'Web portal',
+		completed: false,
+		description:
+			'Access the web interface via the browser, remotely access your library and manage your devices and Spaces.'
+	},
+	{
+		title: 'Spaces',
+		completed: false,
+		description:
+			'Create and manage Spaces, hosted locally or on the cloud, to share with friends or publish on the web. Spaces are AI native, with a custom local language model that can converse with the user and puppeteer the Explorer view.'
+	},
+	{
+		title: 'Key manager',
+		completed: false,
+		description:
+			'View, mount, unmount and hide keys. Mounted keys can be used to instantly encrypt and decrypt any files on your node.'
 	}
 ];

@@ -1,4 +1,4 @@
-import { defineDocumentType, makeSource } from '@contentlayer/source-files';
+import { defineDocumentType, makeSource } from 'contentlayer2/source-files';
 import readingTime from 'reading-time';
 // support for anchor links
 import rehypeAutolinkHeadings from 'rehype-autolink-headings';
@@ -98,7 +98,7 @@ export const Document = defineDocumentType(() => ({
 								.replace(/^.+?(\/)/, '')
 								.split('/')
 								.slice(-1)[0]
-					  )
+						)
 		},
 		section: {
 			type: 'string',

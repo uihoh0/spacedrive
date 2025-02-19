@@ -1,23 +1,24 @@
-import '@fontsource/inter/variable.css';
-
 import dayjs from 'dayjs';
 import advancedFormat from 'dayjs/plugin/advancedFormat';
 import duration from 'dayjs/plugin/duration';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { PropsWithChildren, Suspense } from 'react';
+import { I18nextProvider } from 'react-i18next';
 import { RouterProvider, RouterProviderProps } from 'react-router-dom';
 import {
 	InteropProviderReact,
 	P2PContextProvider,
+	useBridgeMutation,
 	useBridgeSubscription,
 	useInvalidateQuery,
 	useLoadBackendFeatureFlags
 } from '@sd/client';
-import { toast, TooltipProvider } from '@sd/ui';
+import { dialogManager, toast, TooltipProvider } from '@sd/ui';
+import RequestAddDialog from '~/components/RequestAddDialog';
 
 import { createRoutes } from './app';
 import { SpacedropProvider } from './app/$libraryId/Spacedrop';
-import { P2P, useP2PErrorToast } from './app/p2p';
+import i18n from './app/I18n';
 import { Devtools } from './components/Devtools';
 import { WithPrismTheme } from './components/TextViewer/prism';
 import ErrorFallback, { BetterErrorBoundary } from './ErrorFallback';
@@ -27,7 +28,7 @@ import { RouterContext, RoutingContext } from './RoutingContext';
 export * from './app';
 export { ErrorPage } from './ErrorFallback';
 export * from './TabsContext';
-export * from './util/keybind';
+export * from './util/events';
 export * from './util/Platform';
 
 dayjs.extend(advancedFormat);
@@ -51,6 +52,7 @@ export function SpacedriveRouterProvider(props: {
 		visible: boolean;
 		router: Router;
 		currentIndex: number;
+		tabId: string;
 		maxIndex: number;
 	};
 }) {
@@ -61,6 +63,7 @@ export function SpacedriveRouterProvider(props: {
 					routes: props.routing.routes,
 					visible: props.routing.visible,
 					currentIndex: props.routing.currentIndex,
+					tabId: props.routing.tabId,
 					maxIndex: props.routing.maxIndex
 				}}
 			>
@@ -77,7 +80,6 @@ export function SpacedriveRouterProvider(props: {
 
 export function SpacedriveInterfaceRoot({ children }: PropsWithChildren) {
 	useLoadBackendFeatureFlags();
-	useP2PErrorToast();
 	useInvalidateQuery();
 	useTheme();
 
@@ -87,21 +89,38 @@ export function SpacedriveInterfaceRoot({ children }: PropsWithChildren) {
 		}
 	});
 
+	const userResponse = useBridgeMutation('cloud.userResponse');
+
+	useBridgeSubscription(['cloud.listenCloudServicesNotifications'], {
+		onData: (d) => {
+			console.log('Received cloud service notification', d);
+			switch (d.kind) {
+				case 'ReceivedJoinSyncGroupRequest':
+					dialogManager.create((dp) => <RequestAddDialog data={d.data} {...dp} />);
+					break;
+				default:
+					toast({ title: 'Cloud Service Notification', body: d.kind }, { type: 'info' });
+					break;
+			}
+		}
+	});
+
 	return (
 		<Suspense>
-			<BetterErrorBoundary FallbackComponent={ErrorFallback}>
-				<InteropProviderReact>
-					<TooltipProvider>
-						<P2PContextProvider>
-							<P2P />
-							<Devtools />
-							<WithPrismTheme />
-							<SpacedropProvider />
-							{children}
-						</P2PContextProvider>
-					</TooltipProvider>
-				</InteropProviderReact>
-			</BetterErrorBoundary>
+			<I18nextProvider i18n={i18n}>
+				<BetterErrorBoundary FallbackComponent={ErrorFallback}>
+					<InteropProviderReact>
+						<TooltipProvider>
+							<P2PContextProvider>
+								<Devtools />
+								<WithPrismTheme />
+								<SpacedropProvider />
+								{children}
+							</P2PContextProvider>
+						</TooltipProvider>
+					</InteropProviderReact>
+				</BetterErrorBoundary>
+			</I18nextProvider>
 		</Suspense>
 	);
 }

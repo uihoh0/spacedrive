@@ -1,100 +1,84 @@
 import { useNavigation } from '@react-navigation/native';
-import { DotsThreeOutlineVertical, Eye, Plus } from 'phosphor-react-native';
-import React, { useRef } from 'react';
-import { Pressable, Text, View } from 'react-native';
-import { FlatList } from 'react-native-gesture-handler';
-import { Tag, useCache, useLibraryQuery, useNodes } from '@sd/client';
+import { Plus } from 'phosphor-react-native';
+import React, { useRef, useState } from 'react';
+import { FlatList, Text, View } from 'react-native';
+import { useLibraryQuery } from '@sd/client';
 import { ModalRef } from '~/components/layout/Modal';
 import { tw, twStyle } from '~/lib/tailwind';
 import { BrowseStackScreenProps } from '~/navigation/tabs/BrowseStack';
 
+import Empty from '../layout/Empty';
 import Fade from '../layout/Fade';
 import CreateTagModal from '../modal/tag/CreateTagModal';
-import { TagModal } from '../modal/tag/TagModal';
-
-type BrowseTagItemProps = {
-	tag: Tag;
-	onPress: () => void;
-};
-
-const BrowseTagItem: React.FC<BrowseTagItemProps> = ({ tag, onPress }) => {
-	const modalRef = useRef<ModalRef>(null);
-	return (
-		<Pressable onPress={onPress} testID="browse-tag">
-			<View
-				style={tw`h-fit w-[90px] flex-col justify-center gap-2.5 rounded-md border border-sidebar-line/50 bg-sidebar-box p-2`}
-			>
-				<View style={tw`flex-row items-center justify-between`}>
-					<View
-						style={twStyle('h-[28px] w-[28px] rounded-full', {
-							backgroundColor: tag.color!
-						})}
-					/>
-					<Pressable onPress={() => modalRef.current?.present()}>
-						<DotsThreeOutlineVertical
-							weight="fill"
-							size={20}
-							color={tw.color('ink-faint')}
-						/>
-					</Pressable>
-				</View>
-				<Text
-					style={tw`w-full max-w-[75px] text-xs font-bold text-white`}
-					numberOfLines={1}
-				>
-					{tag.name}
-				</Text>
-			</View>
-			<TagModal ref={modalRef} tag={tag} />
-		</Pressable>
-	);
-};
+import { Button } from '../primitive/Button';
+import { TagItem } from '../tags/TagItem';
 
 const BrowseTags = () => {
 	const navigation = useNavigation<BrowseStackScreenProps<'Browse'>['navigation']>();
 
 	const tags = useLibraryQuery(['tags.list']);
-
-	useNodes(tags.data?.nodes);
-	const tagData = useCache(tags.data?.items);
+	const tagData = tags.data;
 
 	const modalRef = useRef<ModalRef>(null);
+	const [showAll, setShowAll] = useState(false);
 
 	return (
 		<View style={tw`gap-5`}>
-			<View style={tw`w-full flex-row items-center justify-between px-7`}>
-				<Text style={tw`text-xl font-bold text-white`}>Tags</Text>
+			<View style={tw`w-full flex-row items-center justify-between px-5`}>
+				<Text style={tw`text-lg font-bold text-white`}>Tags</Text>
 				<View style={tw`flex-row gap-3`}>
-					<Pressable>
-						<View style={tw`h-8 w-8 items-center justify-center rounded-md bg-accent`}>
-							<Eye weight="bold" size={18} style={tw`text-white`} />
-						</View>
-					</Pressable>
-					<Pressable testID="add-tag" onPress={() => modalRef.current?.present()}>
-						<View
-							style={tw`h-8 w-8 items-center justify-center rounded-md border border-dashed border-ink-faint bg-transparent`}
-						>
-							<Plus weight="bold" size={18} style={tw`text-ink-faint`} />
-						</View>
-					</Pressable>
+					<Button
+						testID="show-all-tags-button"
+						style={twStyle(`rounded-full`, {
+							borderColor: showAll
+								? tw.color('accent')
+								: tw.color('border-app-lightborder')
+						})}
+						variant="outline"
+						onPress={() => setShowAll((prev) => !prev)}
+					>
+						<Text style={tw`text-xs text-ink`}>
+							{showAll ? 'Show less' : 'Show all'} ({tagData?.length})
+						</Text>
+					</Button>
+					<Button
+						testID="create-tag-button"
+						onPress={() => modalRef.current?.present()}
+						style={tw`flex-row gap-1 rounded-full`}
+						variant="gray"
+					>
+						<Plus size={10} weight="bold" style={tw`text-white`} />
+						<Text style={tw`text-xs text-ink`}>Add</Text>
+					</Button>
 				</View>
 			</View>
-			<Fade color="mobile-screen" width={30} height="100%">
-				<FlatList
-					data={tagData}
-					renderItem={({ item }) => (
-						<BrowseTagItem
-							tag={item}
-							onPress={() => navigation.navigate('Tag', { id: item.id })}
-						/>
-					)}
-					keyExtractor={(item) => item.id.toString()}
-					horizontal
-					showsHorizontalScrollIndicator={false}
-					contentContainerStyle={tw`px-7`}
-					ItemSeparatorComponent={() => <View style={tw`w-2`} />}
-				/>
-			</Fade>
+			<View style={tw`relative -m-1`}>
+				<Fade color="black" width={20} height="100%">
+					<FlatList
+						data={tagData}
+						ListEmptyComponent={
+							<Empty description="You have not created any tags" icon="Tags" />
+						}
+						numColumns={showAll ? 3 : 1}
+						contentContainerStyle={twStyle(tagData?.length === 0 && 'w-full', 'px-5')}
+						horizontal={showAll ? false : true}
+						key={showAll ? '_tags' : 'alltagcols'}
+						keyExtractor={(item) => item.id.toString()}
+						scrollEnabled={showAll ? false : true}
+						showsHorizontalScrollIndicator={false}
+						renderItem={({ item }) => (
+							<TagItem
+								style={twStyle(showAll && 'max-w-[31%] flex-1')}
+								key={item.id}
+								tag={item}
+								onPress={() =>
+									navigation.navigate('Tag', { id: item.id, color: item.color! })
+								}
+							/>
+						)}
+					/>
+				</Fade>
+			</View>
 			<CreateTagModal ref={modalRef} />
 		</View>
 	);

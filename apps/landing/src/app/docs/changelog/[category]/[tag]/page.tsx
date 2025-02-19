@@ -1,9 +1,9 @@
 import { bundleMDX } from 'mdx-bundler';
-import { getMDXComponent } from 'next-contentlayer/hooks';
+import { getMDXComponent } from 'next-contentlayer2/hooks';
 import { notFound } from 'next/navigation';
 import { getRelease, githubFetch } from '~/app/api/github';
 import { DocMDXComponents } from '~/components/mdx';
-import { toTitleCase } from '~/utils/util';
+import { toTitleCase } from '~/utils/misc';
 
 import { Markdown } from '../../../Markdown';
 import { getReleasesCategories } from '../../data';
@@ -13,9 +13,22 @@ interface Props {
 }
 
 export async function generateStaticParams(): Promise<Array<Props['params']>> {
-	const categories = await getReleasesCategories();
+  try {
+    const categories = await getReleasesCategories();
 
-	return categories.flatMap((c) => c.docs.map((d) => ({ category: c.slug, tag: d.slug })));
+    // Handle null/undefined case
+    if (!categories) return [];
+
+    return categories.flatMap((c) =>
+      c.docs.map((d) => ({
+        category: c.slug,
+        tag: d.slug
+      }))
+    );
+  } catch (error) {
+    // Return empty array if error occurs
+    return [];
+  }
 }
 
 export async function generateMetadata({ params }: Props) {

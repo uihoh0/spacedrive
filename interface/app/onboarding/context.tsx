@@ -11,12 +11,13 @@ import {
 	useBridgeMutation,
 	useCachedLibraries,
 	useMultiZodForm,
-	useNormalisedCache,
 	useOnboardingStore,
 	usePlausibleEvent
 } from '@sd/client';
 import { RadioGroupField, z } from '@sd/ui';
 import { usePlatform } from '~/util/Platform';
+
+import i18n from '../I18n';
 
 export const OnboardingContext = createContext<ReturnType<typeof useContextValue> | null>(null);
 
@@ -37,17 +38,21 @@ export const useContextValue = () => {
 };
 
 export const shareTelemetry = RadioGroupField.options([
-	z.literal('share-telemetry'),
-	z.literal('minimal-telemetry')
+	z.literal('full'),
+	z.literal('minimal'),
+	z.literal('none')
 ]).details({
-	'share-telemetry': {
-		heading: 'Share anonymous usage',
-		description:
-			'Share completely anonymous telemetry data to help the developers improve the app'
+	full: {
+		heading: i18n.t('telemetry_share_anonymous'),
+		description: i18n.t('telemetry_share_anonymous_description')
 	},
-	'minimal-telemetry': {
-		heading: 'Share the bare minimum',
-		description: 'Only share that I am an active user of Spacedrive and a few technical bits'
+	minimal: {
+		heading: i18n.t('telemetry_share_minimal'),
+		description: i18n.t('telemetry_share_minimal_description')
+	},
+	none: {
+		heading: i18n.t('telemetry_share_none'),
+		description: i18n.t('telemetry_share_none_description')
 	}
 });
 
@@ -97,7 +102,6 @@ const useFormState = () => {
 	}
 
 	const createLibrary = useBridgeMutation('library.create');
-	const cache = useNormalisedCache();
 
 	const submit = handleSubmit(
 		async (data) => {
@@ -105,24 +109,22 @@ const useFormState = () => {
 
 			// opted to place this here as users could change their mind before library creation/onboarding finalization
 			// it feels more fitting to configure it here (once)
-			telemetryState.shareFullTelemetry = data.privacy.shareTelemetry === 'share-telemetry';
+			telemetryState.telemetryLevelPreference = data.privacy.shareTelemetry;
 
 			try {
 				// show creation screen for a bit for smoothness
-				const [libraryRaw] = await Promise.all([
+				const [library] = await Promise.all([
 					createLibrary.mutateAsync({
 						name: data['new-library'].name,
 						default_locations: data.locations.locations
 					}),
 					new Promise((res) => setTimeout(res, 500))
 				]);
-				cache.withNodes(libraryRaw.nodes);
-				const library = cache.withCache(libraryRaw.item);
 				insertLibrary(queryClient, library);
 
-				platform.refreshMenuBar && platform.refreshMenuBar();
+				if (platform.refreshMenuBar) platform.refreshMenuBar();
 
-				if (telemetryState.shareFullTelemetry) {
+				if (telemetryState.telemetryLevelPreference === 'full') {
 					submitPlausibleEvent({ event: { type: 'libraryCreate' } });
 				}
 

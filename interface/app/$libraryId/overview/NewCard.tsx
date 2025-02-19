@@ -1,18 +1,44 @@
 // import { X } from '@phosphor-icons/react';
-import { Button } from '@sd/ui';
+import clsx from 'clsx';
 import { Icon, IconName } from '~/components';
+import { useLocale } from '~/hooks';
 
-interface NewCardProps {
-	icons: IconName[];
-	text: string;
-	buttonText?: string;
-}
+type NewCardProps =
+	| {
+			icons: IconName[];
+			text: string;
+			className?: string;
+			button?: () => JSX.Element;
+			buttonText?: never;
+			buttonHandler?: never;
+	  }
+	| {
+			icons: IconName[];
+			text: string;
+			className?: string;
+			buttonText: string;
+			buttonHandler: () => void;
+			button?: never;
+	  };
 
 const maskImage = `linear-gradient(90deg, transparent 0.1%, rgba(0, 0, 0, 1), rgba(0, 0, 0, 1) 35%, transparent 99%)`;
 
-const NewCard = ({ icons, text, buttonText }: NewCardProps) => {
+export default function NewCard({
+	icons,
+	text,
+	buttonText,
+	buttonHandler,
+	button,
+	className
+}: NewCardProps) {
+	const { t } = useLocale();
 	return (
-		<div className="flex h-[170px] w-[280px] shrink-0 flex-col justify-between rounded border border-dashed border-app-line p-4">
+		<div
+			className={clsx(
+				'flex h-[170px] w-[280px] shrink-0 flex-col justify-between rounded border border-dashed border-app-line p-4',
+				className
+			)}
+		>
 			<div className="flex flex-row items-start justify-between">
 				<div
 					className="flex flex-row"
@@ -27,16 +53,19 @@ const NewCard = ({ icons, text, buttonText }: NewCardProps) => {
 						</div>
 					))}
 				</div>
-				{/* <Button size="icon" variant="outline">
-					<X weight="bold" className="h-3 w-3 opacity-50" />
-				</Button> */}
 			</div>
 			<span className="text-sm text-ink-dull">{text}</span>
-			<Button disabled={!buttonText} variant="outline">
-				{buttonText ? buttonText : 'Coming Soon'}
-			</Button>
+			{button ? (
+				button()
+			) : (
+				<button
+					onClick={buttonHandler}
+					disabled={!buttonText}
+					className="text-sm font-medium text-ink-dull"
+				>
+					{buttonText ? buttonText : t('coming_soon')}
+				</button>
+			)}
 		</div>
 	);
-};
-
-export default NewCard;
+}

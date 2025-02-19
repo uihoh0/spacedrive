@@ -1,157 +1,139 @@
-#![allow(unused)] // TODO: Remove this
-
-use crate::library::{Libraries, Library, LibraryManagerEvent};
-
-use sd_p2p::Service;
-
 use std::{
 	collections::HashMap,
-	fmt,
-	sync::{Arc, PoisonError, RwLock},
+	sync::{Arc, Mutex, PoisonError},
 };
 
-use tokio::sync::mpsc;
-use tracing::{error, warn};
-use uuid::Uuid;
+use sd_p2p::{hooks::QuicHandle, RemoteIdentity, P2P};
+use tracing::error;
 
-use super::{IdentityOrRemoteIdentity, LibraryMetadata, P2PManager};
+use crate::library::{Libraries, LibraryManagerEvent};
 
-pub struct LibraryServices {
-	services: RwLock<HashMap<Uuid, Arc<Service<LibraryMetadata>>>>,
-	register_service_tx: mpsc::Sender<Arc<Service<LibraryMetadata>>>,
-}
+/// A P2P hook which integrates P2P into Spacedrive's library system.
+///
+/// This hooks is responsible for:
+///  - injecting library peers into the P2P system so we can connect to them over internet.
+///
+pub fn libraries_hook(p2p: Arc<P2P>, quic: Arc<QuicHandle>, libraries: Arc<Libraries>) {
+	let nodes_to_instance = Arc::new(Mutex::new(HashMap::new()));
 
-impl fmt::Debug for LibraryServices {
-	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		f.debug_struct("LibraryServices")
-			.field(
-				"services",
-				&self
-					.services
-					.read()
-					.unwrap_or_else(PoisonError::into_inner)
-					.keys(),
-			)
-			.finish()
-	}
-}
+	let handle = tokio::spawn({
+		let quic = quic.clone();
 
-impl LibraryServices {
-	pub fn new(register_service_tx: mpsc::Sender<Arc<Service<LibraryMetadata>>>) -> Self {
-		Self {
-			services: Default::default(),
-			register_service_tx,
-		}
-	}
+		async move {
+			if let Err(e) = libraries
+				.rx
+				.clone()
+				.subscribe(|msg| {
+					let p2p = p2p.clone();
+					let nodes_to_instance = nodes_to_instance.clone();
+					let quic = quic.clone();
 
-	pub(crate) async fn start(_manager: Arc<P2PManager>, _libraries: Arc<Libraries>) {
-		warn!("P2PManager has library communication disabled.");
-		// if let Err(err) = libraries
-		// 	.rx
-		// 	.clone()
-		// 	.subscribe(|msg| {
-		// 		let manager = manager.clone();
-		// 		async move {
-		// 			match msg {
-		// 				LibraryManagerEvent::InstancesModified(library)
-		// 				| LibraryManagerEvent::Load(library) => {
-		// 					manager
-		// 						.clone()
-		// 						.libraries
-		// 						.load_library(manager, &library)
-		// 						.await
-		// 				}
-		// 				LibraryManagerEvent::Edit(library) => {
-		// 					manager.libraries.edit_library(&library).await
-		// 				}
-		// 				LibraryManagerEvent::Delete(library) => {
-		// 					manager.libraries.delete_library(&library).await
-		// 				}
-		// 			}
-		// 		}
-		// 	})
-		// 	.await
-		// {
-		// 	error!("Core may become unstable! `LibraryServices::start` manager aborted with error: {err:?}");
-		// }
-	}
+					async move {
+						match msg {
+							LibraryManagerEvent::InstancesModified(library)
+							| LibraryManagerEvent::Load(library) => {
+								p2p.metadata_mut().insert(
+									library.id.to_string(),
+									library.identity.to_remote_identity().to_string(),
+								);
 
-	pub fn get(&self, id: &Uuid) -> Option<Arc<Service<LibraryMetadata>>> {
-		self.services
-			.read()
-			.unwrap_or_else(PoisonError::into_inner)
-			.get(id)
-			.cloned()
-	}
+								let Ok(instances) =
+									library.db.instance().find_many(vec![]).exec().await
+								else {
+									return;
+								};
 
-	pub fn libraries(&self) -> Vec<(Uuid, Arc<Service<LibraryMetadata>>)> {
-		self.services
-			.read()
-			.unwrap_or_else(PoisonError::into_inner)
-			.iter()
-			.map(|(k, v)| (*k, v.clone()))
-			.collect::<Vec<_>>()
-	}
+								let mut nodes_to_instance = nodes_to_instance
+									.lock()
+									.unwrap_or_else(PoisonError::into_inner);
 
-	pub(crate) async fn load_library(&self, manager: Arc<P2PManager>, library: &Library) {
-		let identities = match library.db.instance().find_many(vec![]).exec().await {
-			Ok(library) => library
-				.into_iter()
-				.filter_map(
-					// TODO: Error handling
-					|i| match IdentityOrRemoteIdentity::from_bytes(&i.identity) {
-						Err(err) => {
-							warn!("error parsing identity: {err:?}");
-							None
+								for i in instances.iter() {
+									let identity = RemoteIdentity::from_bytes(&i.remote_identity)
+										.expect("invalid instance identity");
+									let node_identity = RemoteIdentity::from_bytes(
+										i.node_remote_identity
+											.as_ref()
+											.expect("node remote identity is required"),
+									)
+									.expect("invalid node remote identity");
+
+									// Skip self
+									if i.identity.is_some() {
+										continue;
+									}
+
+									nodes_to_instance
+										.entry(identity)
+										.or_insert(vec![])
+										.push(node_identity);
+
+									quic.track_peer(
+										node_identity,
+										serde_json::from_slice(
+											i.metadata.as_ref().expect("this is a required field"),
+										)
+										.expect("invalid metadata"),
+									);
+								}
+							}
+							LibraryManagerEvent::Edit(_library) => {
+								// TODO: Send changes to all connected nodes or queue sending for when they are online!
+							}
+							LibraryManagerEvent::Delete(library) => {
+								p2p.metadata_mut().remove(&library.id.to_string());
+
+								let Ok(instances) =
+									library.db.instance().find_many(vec![]).exec().await
+								else {
+									return;
+								};
+
+								let mut nodes_to_instance = nodes_to_instance
+									.lock()
+									.unwrap_or_else(PoisonError::into_inner);
+
+								for i in instances.iter() {
+									let identity = RemoteIdentity::from_bytes(&i.remote_identity)
+										.expect("invalid remote identity");
+									let node_identity = RemoteIdentity::from_bytes(
+										i.node_remote_identity
+											.as_ref()
+											.expect("node remote identity is required"),
+									)
+									.expect("invalid node remote identity");
+
+									// Skip self
+									if i.identity.is_some() {
+										continue;
+									}
+
+									// Only remove if all instances pointing to this node are removed
+									let Some(identities) = nodes_to_instance.get_mut(&identity)
+									else {
+										continue;
+									};
+									if let Some(i) =
+										identities.iter().position(|i| i == &node_identity)
+									{
+										identities.remove(i);
+									}
+									if identities.is_empty() {
+										quic.untrack_peer(node_identity);
+									}
+								}
+							}
 						}
-						Ok(IdentityOrRemoteIdentity::Identity(_)) => None,
-						Ok(IdentityOrRemoteIdentity::RemoteIdentity(identity)) => Some(identity),
-					},
-				)
-				.collect(),
-			Err(err) => {
-				warn!("error loading library '{}': {err:?}", library.id);
-				return;
-			}
-		};
-
-		let mut inserted = false;
-
-		let service = {
-			let mut service = self
-				.services
-				.write()
-				.unwrap_or_else(PoisonError::into_inner);
-			let service = service.entry(library.id).or_insert_with(|| {
-				inserted = true;
-				Arc::new(
-					Service::new(library.id.to_string(), manager.manager.clone())
-						.expect("error creating service with duplicate service name"),
-				)
-			});
-			service.add_known(identities);
-			service.clone()
-		};
-
-		if inserted {
-			service.update(LibraryMetadata {});
-			if self.register_service_tx.send(service).await.is_err() {
-				warn!("error sending on 'register_service_tx'. This indicates a bug!");
+					}
+				})
+				.await
+			{
+				error!(?e, "Core may become unstable! `LibraryServices::start` manager aborted with error;");
 			}
 		}
-	}
+	});
 
-	pub(crate) async fn edit_library(&self, _library: &Library) {
-		// TODO: Send changes to all connected nodes!
-		// TODO: Update mdns
-	}
-
-	pub(crate) async fn delete_library(&self, library: &Library) {
-		drop(
-			self.services
-				.write()
-				.unwrap_or_else(PoisonError::into_inner)
-				.remove(&library.id),
-		);
-	}
+	tokio::spawn(async move {
+		quic.shutdown().await;
+		handle.abort();
+	});
 }

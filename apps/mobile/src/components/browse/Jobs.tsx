@@ -5,17 +5,18 @@ import { ScrollView } from 'react-native-gesture-handler';
 import { tw } from '~/lib/tailwind';
 
 import FolderIcon from '../icons/FolderIcon';
+import Card from '../layout/Card';
 import Fade from '../layout/Fade';
 
 const Jobs = () => {
 	return (
-		<View style={tw`gap-5`}>
-			<View style={tw`w-full flex-row items-center justify-between px-7`}>
-				<Text style={tw`text-xl font-bold text-white`}>Jobs</Text>
+		<View style={tw`gap-3`}>
+			<View style={tw`w-full flex-row items-center justify-between px-5`}>
+				<Text style={tw`text-lg font-bold text-white`}>Active Jobs</Text>
 			</View>
-			<Fade color="mobile-screen" height="100%" width={30}>
+			<Fade color="black" height="100%" width={30}>
 				<ScrollView horizontal showsHorizontalScrollIndicator={false}>
-					<View style={tw`flex-row gap-2 px-7`}>
+					<View style={tw`flex-row gap-2 px-5`}>
 						<Job message="Processed 300 of 1431 orphan paths..." progress={55} />
 						<Job message="All tasks have been completed successfully" progress={100} />
 						<Job
@@ -41,14 +42,12 @@ const Job = ({ progress, message, error }: JobProps) => {
 	const progressColor = error
 		? tw.color('red-500')
 		: progress === 100
-		? tw.color('green-500')
-		: tw.color('accent');
+			? tw.color('green-500')
+			: tw.color('accent');
 	return (
-		<View
-			style={tw`h-fit w-[310px] flex-col rounded-md border border-sidebar-line/50 bg-sidebar-box`}
-		>
+		<Card style={tw`h-[170px] w-[310px] flex-col p-0`}>
 			<View
-				style={tw`w-full flex-row items-center justify-between rounded-t-md border-b border-sidebar-line/80 bg-mobile-header/50 px-5 py-2`}
+				style={tw`w-full flex-row items-center justify-between rounded-t-md border-b border-app-cardborder px-5 py-2`}
 			>
 				<View style={tw`flex-row items-center gap-2`}>
 					<FolderIcon size={36} />
@@ -56,7 +55,7 @@ const Job = ({ progress, message, error }: JobProps) => {
 				</View>
 				<DotsThreeOutlineVertical weight="fill" size={20} color={tw.color('ink-faint')} />
 			</View>
-			<View style={tw`mx-auto flex-1 flex-row items-center justify-between gap-5 px-5 py-2`}>
+			<View style={tw`mx-auto flex-1 flex-row items-center justify-between gap-5 px-5 py-3`}>
 				<AnimatedCircularProgress
 					size={80}
 					width={7}
@@ -68,7 +67,7 @@ const Job = ({ progress, message, error }: JobProps) => {
 					backgroundColor={tw.color('ink-light/5')}
 				>
 					{(fill) => (
-						<View style={tw`flex-row items-end gap-[1px]`}>
+						<View style={tw`flex-row items-end gap-px`}>
 							<Text style={tw`text-lg font-bold text-white`}>
 								{error ? '0' : fill.toFixed(0)}
 							</Text>
@@ -80,9 +79,9 @@ const Job = ({ progress, message, error }: JobProps) => {
 						</View>
 					)}
 				</AnimatedCircularProgress>
-				<Text style={tw`w-[60%] text-sm leading-5 text-ink-dull`}>{message}</Text>
+				<Text style={tw`w-3/5 text-sm leading-5 text-ink-dull`}>{message}</Text>
 			</View>
-		</View>
+		</Card>
 	);
 };
 

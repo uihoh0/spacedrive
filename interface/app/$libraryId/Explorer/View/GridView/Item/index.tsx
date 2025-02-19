@@ -1,13 +1,28 @@
+import { Transparent } from '@sd/assets/images';
 import clsx from 'clsx';
-import { memo, useMemo } from 'react';
-import { byteSize, getItemFilePath, useSelector, type ExplorerItem } from '@sd/client';
+import { memo, useEffect, useMemo } from 'react';
+import {
+	getItemFilePath,
+	getItemObject,
+	humanizeSize,
+	libraryClient,
+	Tag,
+	useExplorerLayoutStore,
+	useLibraryQuery,
+	useSelector,
+	type ExplorerItem
+} from '@sd/client';
+import { useLocale } from '~/hooks';
+import { usePlatform } from '~/util/Platform';
 
 import { useExplorerContext } from '../../../Context';
 import { ExplorerDraggable } from '../../../ExplorerDraggable';
 import { ExplorerDroppable, useExplorerDroppableContext } from '../../../ExplorerDroppable';
 import { FileThumb } from '../../../FilePath/Thumb';
+import { useFrame } from '../../../FilePath/useFrame';
 import { explorerStore } from '../../../store';
 import { useExplorerDraggable } from '../../../useExplorerDraggable';
+import { useExplorerItemData } from '../../../useExplorerItemData';
 import { RenamableItemText } from '../../RenamableItemText';
 import { ViewItem } from '../../ViewItem';
 import { GridViewItemContext, useGridViewItemContext } from './Context';
@@ -27,7 +42,7 @@ export const GridViewItem = memo((props: GridViewItemProps) => {
 
 	return (
 		<GridViewItemContext.Provider value={props}>
-			<ViewItem data={props.data} className={clsx('h-full w-full', isHidden && 'opacity-50')}>
+			<ViewItem data={props.data} className={clsx('size-full', isHidden && 'opacity-50')}>
 				<ExplorerDroppable
 					droppable={{
 						data: { type: 'explorer-item', data: props.data },
@@ -41,7 +56,7 @@ export const GridViewItem = memo((props: GridViewItemProps) => {
 	);
 });
 
-const InnerDroppable = () => {
+const InnerDroppable = memo(() => {
 	const item = useGridViewItemContext();
 	const { isDroppable } = useExplorerDroppableContext();
 
@@ -49,52 +64,101 @@ const InnerDroppable = () => {
 		<>
 			<div
 				className={clsx(
-					'mb-1 aspect-square rounded-lg',
+					'mb-1 flex aspect-square items-center justify-center rounded-lg',
 					(item.selected || isDroppable) && 'bg-app-selectedItem'
 				)}
 			>
-				<ItemFileThumb />
+				<ItemFileThumb {...item} />
 			</div>
-
-			<ExplorerDraggable draggable={{ data: item.data }}>
-				<RenamableItemText
-					item={item.data}
-					style={{ maxHeight: 40, textAlign: 'center' }}
-					lines={2}
-					highlight={isDroppable}
-					selected={item.selected}
-				/>
-				<ItemSize />
-			</ExplorerDraggable>
+			<ItemMetadata />
 		</>
 	);
-};
+});
 
-const ItemFileThumb = () => {
-	const item = useGridViewItemContext();
-
+const ItemFileThumb = memo((props: GridViewItemProps) => {
+	const frame = useFrame();
 	const { attributes, listeners, style, setDraggableRef } = useExplorerDraggable({
-		data: item.data
+		data: props.data
 	});
+
+	const isLabel = props.data.type === 'Label';
 
 	return (
 		<FileThumb
-			data={item.data}
-			frame
+			data={props.data}
+			frame={!isLabel}
+			cover={isLabel}
 			blackBars
 			extension
-			className={clsx('px-2 py-1', item.cut && 'opacity-60')}
+			className={clsx(
+				isLabel ? [frame.className, '!size-[90%] !rounded-md'] : 'px-2 py-1',
+				props.cut && 'opacity-60'
+			)}
 			ref={setDraggableRef}
-			childProps={{
-				style,
-				...attributes,
-				...listeners
-			}}
+			childProps={useMemo(
+				() => ({
+					style,
+					...attributes,
+					...listeners
+				}),
+				[style, attributes, listeners]
+			)}
 		/>
 	);
-};
+});
 
-const ItemSize = () => {
+const ItemMetadata = memo(() => {
+	const item = useGridViewItemContext();
+	const { isDroppable } = useExplorerDroppableContext();
+	const explorerLayout = useExplorerLayoutStore();
+
+	const isRenaming = useSelector(explorerStore, (s) => s.isRenaming && item.selected);
+
+	return (
+		<ExplorerDraggable draggable={{ data: item.data, disabled: isRenaming }}>
+			<RenamableItemText
+				item={item.data}
+				style={{ textAlign: 'center' }}
+				lines={2}
+				editLines={3}
+				highlight={isDroppable}
+				selected={item.selected}
+			/>
+			<ItemSize />
+			{explorerLayout.showTags && <ItemTags />}
+			{item.data.type === 'Label' && <LabelItemCount data={item.data} />}
+		</ExplorerDraggable>
+	);
+});
+
+const ItemTags = memo(() => {
+	const item = useGridViewItemContext();
+	const object = getItemObject(item.data);
+	const filePath = getItemFilePath(item.data);
+	const data = object || filePath;
+	const tags = data && 'tags' in data ? data.tags : [];
+	return (
+		<div
+			className="relative mt-1 flex w-full flex-row items-center justify-center"
+			style={{
+				left: tags.length * 1
+			}}
+		>
+			{tags?.slice(0, 3).map((tag: { tag: Tag }, i: number) => (
+				<div
+					key={tag.tag.id}
+					className="relative size-2.5 rounded-full border border-app"
+					style={{
+						backgroundColor: tag.tag.color!,
+						right: i * 4
+					}}
+				/>
+			))}
+		</div>
+	);
+});
+
+const ItemSize = memo(() => {
 	const item = useGridViewItemContext();
 	const { showBytesInGridView } = useExplorerContext().useSettingsSnapshot();
 	const isRenaming = useSelector(explorerStore, (s) => s.isRenaming);
@@ -104,6 +168,7 @@ const ItemSize = () => {
 	const isLocation = item.data.type === 'Location';
 	const isEphemeral = item.data.type === 'NonIndexedPath';
 	const isFolder = filePath?.is_dir;
+	const { t } = useLocale();
 
 	const showSize =
 		showBytesInGridView &&
@@ -114,15 +179,40 @@ const ItemSize = () => {
 		(!isRenaming || !item.selected);
 
 	const bytes = useMemo(
-		() => showSize && byteSize(filePath?.size_in_bytes_bytes),
-		[filePath?.size_in_bytes_bytes, showSize]
+		() =>
+			showSize &&
+			`${humanizeSize(filePath?.size_in_bytes_bytes).value} ${t(`size_${humanizeSize(filePath?.size_in_bytes_bytes).unit.toLowerCase()}`)}`,
+		[filePath?.size_in_bytes_bytes, showSize, t]
 	);
 
 	if (!showSize) return null;
 
 	return (
-		<div className="truncate rounded-md px-1.5 py-[1px] text-center text-tiny text-ink-dull">
+		<div className="truncate rounded-md px-1.5 py-px text-center text-tiny text-ink-dull">
 			{`${bytes}`}
 		</div>
 	);
-};
+});
+
+const LabelItemCount = memo(({ data }: { data: Extract<ExplorerItem, { type: 'Label' }> }) => {
+	const { t } = useLocale();
+
+	const count = useLibraryQuery([
+		'search.objectsCount',
+		{
+			filters: [
+				{
+					object: { labels: { in: [data.item.id] } }
+				}
+			]
+		}
+	]);
+
+	if (count.data === undefined) return null;
+
+	return (
+		<div className="truncate rounded-md px-1.5 py-px text-center text-tiny text-ink-dull">
+			{t('item_with_count', { count: count.data })}
+		</div>
+	);
+});

@@ -1,10 +1,10 @@
 use std::{
 	collections::HashSet,
 	env,
-	ffi::{CStr, OsStr, OsString},
+	ffi::{CStr, OsStr},
 	mem,
 	os::unix::ffi::OsStrExt,
-	path::{Path, PathBuf},
+	path::PathBuf,
 	ptr,
 };
 
@@ -175,23 +175,11 @@ pub fn normalize_environment() {
 		],
 	)
 	.expect("PATH must be successfully normalized");
-}
 
-pub(crate) fn remove_prefix_from_pathlist(
-	env_name: &str,
-	prefix: &impl AsRef<Path>,
-) -> Option<OsString> {
-	env::var_os(env_name).and_then(|value| {
-		let mut dirs = env::split_paths(&value)
-		.filter(|dir| !(dir.as_os_str().is_empty() || dir.starts_with(prefix)))
-		.peekable();
-
-		if dirs.peek().is_none() {
-			None
-		} else {
-			Some(env::join_paths(dirs).expect("Should not fail because we are only filtering a pathlist retrieved from the environmnet"))
-		}
-	})
+	if has_nvidia() {
+		// Workaround for: https://github.com/tauri-apps/tauri/issues/9304
+		env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+	}
 }
 
 // Check if snap by looking if SNAP is set and not empty and that the SNAP directory exists
@@ -205,20 +193,39 @@ pub fn is_snap() -> bool {
 	false
 }
 
-// Check if appimage by looking if APPDIR is set and is a valid directory
-pub fn is_appimage() -> bool {
-	if let Some(appdir) = std::env::var_os("APPDIR").map(PathBuf::from) {
-		appdir.is_absolute() && appdir.is_dir()
-	} else {
-		false
-	}
-}
-
 // Check if flatpak by looking if FLATPAK_ID is set and not empty and that the .flatpak-info file exists
 pub fn is_flatpak() -> bool {
 	if let Some(flatpak_id) = std::env::var_os("FLATPAK_ID") {
 		if !flatpak_id.is_empty() && PathBuf::from("/.flatpak-info").is_file() {
 			return true;
+		}
+	}
+
+	false
+}
+
+fn has_nvidia() -> bool {
+	use wgpu::{
+		Backends, DeviceType, Dx12Compiler, Gles3MinorVersion, Instance, InstanceDescriptor,
+		InstanceFlags,
+	};
+
+	let instance = Instance::new(InstanceDescriptor {
+		flags: InstanceFlags::empty(),
+		backends: Backends::VULKAN | Backends::GL,
+		gles_minor_version: Gles3MinorVersion::Automatic,
+		dx12_shader_compiler: Dx12Compiler::default(),
+	});
+	for adapter in instance.enumerate_adapters(Backends::all()) {
+		let info = adapter.get_info();
+		match info.device_type {
+			DeviceType::DiscreteGpu | DeviceType::IntegratedGpu | DeviceType::VirtualGpu => {
+				// Nvidia PCI id
+				if info.vendor == 0x10de {
+					return true;
+				}
+			}
+			_ => {}
 		}
 	}
 

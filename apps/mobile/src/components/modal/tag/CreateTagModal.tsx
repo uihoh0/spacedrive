@@ -1,18 +1,23 @@
-import { useQueryClient } from '@tanstack/react-query';
 import { forwardRef, useEffect, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import ColorPicker from 'react-native-wheel-color-picker';
-import { ToastDefautlColor, useLibraryMutation, usePlausibleEvent } from '@sd/client';
+import {
+	ToastDefautlColor,
+	useLibraryMutation,
+	usePlausibleEvent,
+	useRspcLibraryContext
+} from '@sd/client';
 import { FadeInAnimation } from '~/components/animation/layout';
-import { ModalInput } from '~/components/form/Input';
 import { Modal, ModalRef } from '~/components/layout/Modal';
 import { Button } from '~/components/primitive/Button';
+import { ModalInput } from '~/components/primitive/Input';
+import { toast } from '~/components/primitive/Toast';
 import useForwardedRef from '~/hooks/useForwardedRef';
 import { useKeyboard } from '~/hooks/useKeyboard';
 import { tw, twStyle } from '~/lib/tailwind';
 
 const CreateTagModal = forwardRef<ModalRef, unknown>((_, ref) => {
-	const queryClient = useQueryClient();
+	const rspc = useRspcLibraryContext();
 	const modalRef = useForwardedRef(ref);
 
 	const [tagName, setTagName] = useState('');
@@ -24,18 +29,19 @@ const CreateTagModal = forwardRef<ModalRef, unknown>((_, ref) => {
 	const submitPlausibleEvent = usePlausibleEvent();
 
 	const { mutate: createTag } = useLibraryMutation('tags.create', {
-		onMutate: () => {
-			console.log('Creating tag');
-		},
 		onSuccess: () => {
 			// Reset form
 			setTagName('');
 			setTagColor(ToastDefautlColor);
 			setShowPicker(false);
 
-			queryClient.invalidateQueries(['tags.list']);
+			rspc.queryClient.invalidateQueries({ queryKey: ['tags.list'] });
 
+			toast.success('Tag created successfully');
 			submitPlausibleEvent({ event: { type: 'tagCreate' } });
+		},
+		onError: (error) => {
+			toast.error(error.message);
 		},
 		onSettled: () => {
 			// Close modal
@@ -56,7 +62,7 @@ const CreateTagModal = forwardRef<ModalRef, unknown>((_, ref) => {
 	return (
 		<Modal
 			ref={modalRef}
-			snapPoints={['25']}
+			snapPoints={['22']}
 			title="Create Tag"
 			onDismiss={() => {
 				// Resets form onDismiss
@@ -72,7 +78,7 @@ const CreateTagModal = forwardRef<ModalRef, unknown>((_, ref) => {
 						style={twStyle({ backgroundColor: tagColor }, 'h-6 w-6 rounded-full')}
 					/>
 					<ModalInput
-						testID="create-tag-name"
+						autoFocus
 						style={tw`ml-2 flex-1`}
 						value={tagName}
 						onChangeText={(text) => setTagName(text)}
@@ -93,7 +99,7 @@ const CreateTagModal = forwardRef<ModalRef, unknown>((_, ref) => {
 				<Button
 					variant="accent"
 					onPress={() => createTag({ color: tagColor, name: tagName })}
-					style={tw`mt-6`}
+					style={tw`mt-2`}
 					disabled={tagName.length === 0}
 				>
 					<Text style={tw`text-sm font-medium text-white`}>Create</Text>

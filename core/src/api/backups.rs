@@ -121,29 +121,25 @@ pub(crate) fn mount() -> AlphaRouter<Ctx> {
 				)
 		})
 		.procedure("restore", {
-			R
-				// TODO: Paths as strings is bad but here we want the flexibility of the frontend allowing any path
-				.mutation(|node, path: String| async move {
-					start_restore(node, path.into()).await;
-					Ok(())
-				})
+			R.mutation(|node, path: PathBuf| async move {
+				start_restore(node, path).await;
+				Ok(())
+			})
 		})
 		.procedure("delete", {
-			R
-				// TODO: Paths as strings is bad but here we want the flexibility of the frontend allowing any path
-				.mutation(|node, path: String| async move {
-					fs::remove_file(path)
-						.await
-						.map(|_| {
-							invalidate_query!(node; node, "backups.getAll");
-						})
-						.map_err(|_| {
-							rspc::Error::new(
-								ErrorCode::InternalServerError,
-								"Error deleting backup!".to_string(),
-							)
-						})
-				})
+			R.mutation(|node, path: PathBuf| async move {
+				fs::remove_file(path)
+					.await
+					.map(|_| {
+						invalidate_query!(node; node, "backups.getAll");
+					})
+					.map_err(|_| {
+						rspc::Error::new(
+							ErrorCode::InternalServerError,
+							"Error deleting backup!".to_string(),
+						)
+					})
+			})
 		})
 }
 
@@ -154,15 +150,19 @@ async fn start_backup(node: Arc<Node>, library: Arc<Library>) -> Uuid {
 		match do_backup(bkp_id, &node, &library).await {
 			Ok(path) => {
 				info!(
-					"Backup '{bkp_id}' for library '{}' created at '{path:?}'!",
-					library.id
+					backup_id = %bkp_id,
+					library_id = %library.id,
+					path = %path.display(),
+					"Backup created!;",
 				);
 				invalidate_query!(library, "backups.getAll");
 			}
 			Err(e) => {
 				error!(
-					"Error with backup '{bkp_id}' for library '{}': {e:?}",
-					library.id
+					backup_id = %bkp_id,
+					library_id = %library.id,
+					?e,
+					"Error with backup for library;",
 				);
 
 				// TODO: Alert user something went wrong
@@ -286,10 +286,10 @@ async fn do_backup(id: Uuid, node: &Node, library: &Library) -> Result<PathBuf, 
 async fn start_restore(node: Arc<Node>, path: PathBuf) {
 	match restore_backup(&node, &path).await {
 		Ok(Header { id, library_id, .. }) => {
-			info!("Restored to '{id}' for library '{library_id}'!",);
+			info!(%id, %library_id, "Restored backup for library!");
 		}
 		Err(e) => {
-			error!("Error restoring backup '{}': {e:#?}", path.display());
+			error!(path = %path.display(), ?e, "Error restoring backup;");
 
 			// TODO: Alert user something went wrong
 		}
@@ -380,6 +380,7 @@ async fn restore_backup(node: &Arc<Node>, path: impl AsRef<Path>) -> Result<Head
 			header.library_id,
 			db_restored_path,
 			library_config_restored_path,
+			None,
 			None,
 			true,
 			node,

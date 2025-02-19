@@ -9,12 +9,12 @@ pub(crate) fn mount() -> AlphaRouter<Ctx> {
 				#[cfg(not(feature = "ai"))]
 				return Err(rspc::Error::new(
 					rspc::ErrorCode::MethodNotSupported,
-					"AI feature is not aviailable".to_string(),
+					"AI feature is not available".to_string(),
 				));
 
 				#[cfg(feature = "ai")]
 				{
-					use sd_ai::image_labeler::{Model, YoloV8};
+					use sd_ai::old_image_labeler::{Model, YoloV8};
 					Ok(YoloV8::versions())
 				}
 			},

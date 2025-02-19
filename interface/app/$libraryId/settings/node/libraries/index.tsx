@@ -1,6 +1,6 @@
-import { t } from 'i18next';
-import { useBridgeQuery, useCache, useLibraryContext, useNodes } from '@sd/client';
+import { useBridgeQuery, useClientContext, useLibraryContext } from '@sd/client';
 import { Button, dialogManager } from '@sd/ui';
+import { useLocale } from '~/hooks';
 
 import { Heading } from '../../Layout';
 import CreateDialog from './CreateDialog';
@@ -8,16 +8,19 @@ import ListItem from './ListItem';
 
 export const Component = () => {
 	const librariesQuery = useBridgeQuery(['library.list']);
-	useNodes(librariesQuery.data?.nodes);
-	const libraries = useCache(librariesQuery.data?.items);
+	const libraries = librariesQuery.data;
 
 	const { library } = useLibraryContext();
+	const { libraries: librariesCtx } = useClientContext();
+	const librariesCtxData = librariesCtx.data;
+
+	const { t } = useLocale();
 
 	return (
 		<>
 			<Heading
 				title={t('libraries')}
-				description={t("libraries_description")}
+				description={t('libraries_description')}
 				rightArea={
 					<div className="flex-row space-x-2">
 						<Button
@@ -27,12 +30,11 @@ export const Component = () => {
 								dialogManager.create((dp) => <CreateDialog {...dp} />);
 							}}
 						>
-							{t("add_library")}
+							{t('add_library')}
 						</Button>
 					</div>
 				}
 			/>
-
 			<div className="space-y-2">
 				{libraries
 					?.sort((a, b) => {

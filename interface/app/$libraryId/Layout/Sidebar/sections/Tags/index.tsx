@@ -1,8 +1,10 @@
+import { keepPreviousData } from '@tanstack/react-query';
 import clsx from 'clsx';
 import { NavLink, useMatch } from 'react-router-dom';
-import { useCache, useLibraryQuery, useNodes, type Tag } from '@sd/client';
+import { useLibraryQuery, type Tag } from '@sd/client';
 import { useExplorerDroppable } from '~/app/$libraryId/Explorer/useExplorerDroppable';
 import { SubtleButton } from '~/components';
+import { useLocale } from '~/hooks';
 
 import SidebarLink from '../../SidebarLayout/Link';
 import Section from '../../SidebarLayout/Section';
@@ -10,15 +12,16 @@ import { SeeMore } from '../../SidebarLayout/SeeMore';
 import { ContextMenu } from './ContextMenu';
 
 export default function TagsSection() {
-	const result = useLibraryQuery(['tags.list'], { keepPreviousData: true });
-	useNodes(result.data?.nodes);
-	const tags = useCache(result.data?.items);
+	const result = useLibraryQuery(['tags.list'], { placeholderData: keepPreviousData });
+	const tags = result.data;
+
+	const { t } = useLocale();
 
 	if (!tags?.length) return null;
 
 	return (
 		<Section
-			name="Tags"
+			name={t('tags')}
 			actionArea={
 				<NavLink to="settings/library/tags">
 					<SubtleButton />
@@ -52,12 +55,12 @@ const Tag = ({ tag }: { tag: Tag }) => {
 				to={`tag/${tag.id}`}
 				className={clsx(
 					'border radix-state-open:border-accent',
-					isDroppable ? ' border-accent' : 'border-transparent',
+					isDroppable ? 'border-accent' : 'border-transparent',
 					className
 				)}
 			>
 				<div
-					className="h-[12px] w-[12px] shrink-0 rounded-full"
+					className="size-[12px] shrink-0 rounded-full"
 					style={{ backgroundColor: tag.color || '#efefef' }}
 				/>
 				<span className="ml-1.5 truncate text-sm">{tag.name}</span>

@@ -1,5 +1,5 @@
-import { _inferProcedureHandlerInput, inferProcedureResult } from '@oscartbeaumont-sd/rspc-client';
-import { useQuery, UseQueryOptions, UseQueryResult } from '@tanstack/react-query';
+import { _inferProcedureHandlerInput, inferProcedureResult } from '@spacedrive/rspc-client';
+import { UseQueryOptions, useSuspenseQuery, UseSuspenseQueryResult } from '@tanstack/react-query';
 import { useRef } from 'react';
 
 import { Procedures } from './core';
@@ -11,8 +11,7 @@ let permits = 0; // A Mutex in JS, lmao
 
 export const getPermits = () => permits;
 
-if ("onHotReload" in globalThis)
-	globalThis?.onHotReload(() => (permits = 0));
+if ('onHotReload' in globalThis) globalThis?.onHotReload(() => (permits = 0));
 
 // A query where the data is streamed in.
 // Also basically a subscription with support for React Suspense and proper loading states, invalidation, etc.
@@ -27,19 +26,20 @@ export function useUnsafeStreamedQuery<
 	TData = inferProcedureResult<Procedures, 'subscriptions', K>
 >(
 	keyAndInput: [K, ..._inferProcedureHandlerInput<Procedures, 'subscriptions', K>],
-	opts: UseQueryOptions<TData[]> & {
+	opts: Omit<UseQueryOptions<TData[]>, 'queryKey'> & {
 		onBatch(item: TData): void;
 	}
-): UseQueryResult<TData[], unknown> & { streaming: TData[] } {
+): UseSuspenseQueryResult<TData[], unknown> & { streaming: TData[] } {
 	const data = useRef<TData[]>([]);
 	const rspc = useRspcContext();
 
 	// TODO: The normalised cache might cleanup nodes for this query before it's finished streaming. We need a global mutex on the cleanup routine.
 
-	const query = useQuery({
+	const query = useSuspenseQuery({
+		...opts,
 		queryKey: keyAndInput,
 		queryFn: ({ signal }) =>
-			new Promise((resolve) => {
+			new Promise<TData[]>((resolve) => {
 				permits += 1;
 
 				try {
@@ -49,7 +49,7 @@ export function useUnsafeStreamedQuery<
 							if (item === null || item === undefined) return;
 
 							if (typeof item === 'object' && '__stream_complete' in item) {
-								resolve(data.current as any);
+								resolve(data.current);
 								return;
 							}
 
@@ -61,8 +61,7 @@ export function useUnsafeStreamedQuery<
 				} finally {
 					permits -= 1;
 				}
-			}),
-		...opts
+			})
 	});
 
 	return {

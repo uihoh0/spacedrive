@@ -1,61 +1,67 @@
-import { useNavigation } from '@react-navigation/native';
-import { ArrowLeft, MagnifyingGlass } from 'phosphor-react-native';
-import { lazy } from 'react';
-import { Pressable, Text, View } from 'react-native';
-import { tw } from '~/lib/tailwind';
+import { DrawerNavigationHelpers } from '@react-navigation/drawer/lib/typescript/src/types';
+import { RouteProp, useNavigation } from '@react-navigation/native';
+import { ArrowLeft, List, MagnifyingGlass } from 'phosphor-react-native';
+import { Platform, Pressable, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { tw, twStyle } from '~/lib/tailwind';
 
-//Not all pages use these components - so we lazy load for performance
-const BrowseLibraryManager = lazy(() => import('../browse/DrawerLibraryManager'));
-const Search = lazy(() => import('../inputs/Search'));
-
-interface Props {
-	title?: string; //title of the page
-	showLibrary?: boolean; //show the library manager
-	searchType?: 'explorer' | 'location'; //Temporary
-	navBack?: boolean; //navigate back to the previous screen
-}
+type Props = {
+	route?: RouteProp<any, any>; // supporting title from the options object of navigation
+	navBack?: boolean; // whether to show the back icon
+	navBackTo?: string; // route to go back to
+	search?: boolean; // whether to show the search icon
+	title?: string; // in some cases - we want to override the route title
+};
 
 // Default header with search bar and button to open drawer
-export default function Header({ title, showLibrary, searchType, navBack }: Props) {
-	const navigation = useNavigation();
-
-	const SearchType = () => {
-		switch (searchType) {
-			case 'explorer':
-				return 'Explorer'; //TODO
-			case 'location':
-				return <Search placeholder="Location name..." />;
-			default:
-				return null;
-		}
-	};
+export default function Header({ route, navBack, title, navBackTo, search = false }: Props) {
+	const navigation = useNavigation<DrawerNavigationHelpers>();
+	const headerHeight = useSafeAreaInsets().top;
+	const isAndroid = Platform.OS === 'android';
 
 	return (
-		<View style={tw`relative w-full pt-10 border-b h-fit border-app-line/50 bg-mobile-header`}>
-			<View style={tw`justify-center w-full pb-5 mx-auto mt-5 h-fit px-7`}>
-				<View style={tw`flex-row items-center justify-between w-full`}>
-					<View style={tw`flex-row items-center gap-5`}>
-						{navBack && (
+		<View
+			style={twStyle('relative h-auto w-full border-b border-app-cardborder bg-app-header', {
+				paddingTop: headerHeight + (isAndroid ? 15 : 0)
+			})}
+		>
+			<View style={tw`mx-auto h-auto w-full justify-center px-5 pb-3`}>
+				<View style={tw`w-full flex-row items-center justify-between`}>
+					<View style={tw`flex-row items-center gap-3`}>
+						{navBack ? (
 							<Pressable
+								hitSlop={24}
 								onPress={() => {
+									if (navBackTo) return navigation.navigate(navBackTo);
 									navigation.goBack();
 								}}
 							>
-								<ArrowLeft size={23} color={tw.color('ink')} />
+								<ArrowLeft size={24} color={tw.color('ink')} />
+							</Pressable>
+						) : (
+							<Pressable onPress={() => navigation.openDrawer()}>
+								<List size={24} color={tw.color('ink')} />
 							</Pressable>
 						)}
-						<Text style={tw`text-[24px] font-bold text-white`}>{title}</Text>
+						<Text style={tw`text-xl font-bold text-ink`}>{title || route?.name}</Text>
 					</View>
-					<Pressable onPress={() => navigation.navigate('Search')}>
-						<MagnifyingGlass
-							size={20}
-							weight="bold"
-							color={tw.color('text-zinc-300')}
-						/>
-					</Pressable>
+					{search && (
+						<Pressable
+							hitSlop={24}
+							onPress={() => {
+								navigation.navigate('SearchStack', {
+									screen: 'Search'
+								});
+							}}
+						>
+							<MagnifyingGlass
+								size={20}
+								weight="bold"
+								color={tw.color('text-zinc-300')}
+							/>
+						</Pressable>
+					)}
 				</View>
-				{showLibrary && <BrowseLibraryManager style="mt-4" />}
-				{searchType && <SearchType />}
 			</View>
 		</View>
 	);

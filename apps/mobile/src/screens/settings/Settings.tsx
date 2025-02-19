@@ -1,5 +1,7 @@
 import {
+	ArrowsClockwise,
 	Books,
+	Cloud,
 	FlyingSaucer,
 	Gear,
 	GearSix,
@@ -10,14 +12,17 @@ import {
 	PuzzlePiece,
 	ShareNetwork,
 	ShieldCheck,
-	TagSimple
+	TagSimple,
+	UserCircle
 } from 'phosphor-react-native';
-import React from 'react';
-import { SectionList, Text, TouchableWithoutFeedback, View } from 'react-native';
-import { DebugState, useDebugState, useDebugStateEnabler } from '@sd/client';
-import { SettingsItem, SettingsItemDivider } from '~/components/settings/SettingsItem';
+import { Platform, SectionList, Text, TouchableWithoutFeedback, View } from 'react-native';
+import { DebugState, useDebugState, useDebugStateEnabler, useLibraryQuery } from '@sd/client';
+import ScreenContainer from '~/components/layout/ScreenContainer';
+import { SettingsItem } from '~/components/settings/SettingsItem';
+import { useEnableDrawer } from '~/hooks/useEnableDrawer';
 import { tw, twStyle } from '~/lib/tailwind';
 import { SettingsStackParamList, SettingsStackScreenProps } from '~/navigation/tabs/SettingsStack';
+import { useUserStore } from '~/stores/userStore';
 
 type SectionType = {
 	title: string;
@@ -25,18 +30,39 @@ type SectionType = {
 		title: string;
 		icon: Icon;
 		navigateTo: keyof SettingsStackParamList;
+		comingSoon?: boolean;
+		rounded?: 'top' | 'bottom';
 	}[];
 };
 
-const sections: (debugState: DebugState) => SectionType[] = (debugState) => [
+const sections: (
+	debugState: DebugState,
+	userInfo: ReturnType<typeof useUserStore>['userInfo']
+) => SectionType[] = (debugState, userInfo) => [
 	{
 		title: 'Client',
 		data: [
 			{
 				icon: GearSix,
 				navigateTo: 'GeneralSettings',
-				title: 'General'
+				title: 'General',
+				rounded: 'top'
 			},
+			...(userInfo
+				? ([
+						{
+							icon: UserCircle,
+							navigateTo: 'AccountProfile',
+							title: 'Account'
+						}
+					] as const)
+				: ([
+						{
+							icon: UserCircle,
+							navigateTo: 'AccountLogin',
+							title: 'Account'
+						}
+					] as const)),
 			{
 				icon: Books,
 				navigateTo: 'LibrarySettings',
@@ -44,18 +70,22 @@ const sections: (debugState: DebugState) => SectionType[] = (debugState) => [
 			},
 			{
 				icon: PaintBrush,
+				comingSoon: true,
 				navigateTo: 'AppearanceSettings',
 				title: 'Appearance'
 			},
 			{
 				icon: ShieldCheck,
 				navigateTo: 'PrivacySettings',
+				comingSoon: true,
 				title: 'Privacy'
 			},
 			{
 				icon: PuzzlePiece,
 				navigateTo: 'ExtensionsSettings',
-				title: 'Extensions'
+				title: 'Extensions',
+				rounded: 'bottom',
+				comingSoon: true
 			}
 		]
 	},
@@ -65,7 +95,8 @@ const sections: (debugState: DebugState) => SectionType[] = (debugState) => [
 			{
 				icon: GearSix,
 				navigateTo: 'LibraryGeneralSettings',
-				title: 'General'
+				title: 'General',
+				rounded: 'top'
 			},
 			{
 				icon: HardDrive,
@@ -75,12 +106,24 @@ const sections: (debugState: DebugState) => SectionType[] = (debugState) => [
 			{
 				icon: ShareNetwork,
 				navigateTo: 'NodesSettings',
+				comingSoon: true,
 				title: 'Nodes'
 			},
 			{
 				icon: TagSimple,
 				navigateTo: 'TagsSettings',
 				title: 'Tags'
+			},
+			{
+				icon: Cloud,
+				navigateTo: 'CloudSettings',
+				title: 'Cloud'
+			},
+			{
+				icon: ArrowsClockwise,
+				navigateTo: 'SyncSettings',
+				title: 'Sync',
+				rounded: 'bottom'
 			}
 			// {
 			// 	icon: Key,
@@ -95,21 +138,24 @@ const sections: (debugState: DebugState) => SectionType[] = (debugState) => [
 			{
 				icon: FlyingSaucer,
 				navigateTo: 'About',
-				title: 'About'
+				title: 'About',
+				rounded: 'top'
 			},
 			{
 				icon: Heart,
 				navigateTo: 'Support',
-				title: 'Support'
+				title: 'Support',
+				rounded: !debugState.enabled ? 'bottom' : undefined
 			},
 			...(debugState.enabled
 				? ([
 						{
 							icon: Gear,
 							navigateTo: 'Debug',
-							title: 'Debug'
+							title: 'Debug',
+							rounded: 'bottom'
 						}
-				  ] as const)
+					] as const)
 				: [])
 		]
 	}
@@ -119,8 +165,8 @@ function renderSectionHeader({ section }: { section: { title: string } }) {
 	return (
 		<Text
 			style={twStyle(
-				'mb-2 ml-2 text-sm font-bold text-ink',
-				section.title === 'Client' ? 'mt-2' : 'mt-5'
+				'mb-3 text-lg font-bold text-ink',
+				section.title === 'Client' ? 'mt-0' : 'mt-5'
 			)}
 		>
 			{section.title}
@@ -130,35 +176,44 @@ function renderSectionHeader({ section }: { section: { title: string } }) {
 
 export default function SettingsScreen({ navigation }: SettingsStackScreenProps<'Settings'>) {
 	const debugState = useDebugState();
+	const syncEnabled = useLibraryQuery(['sync.enabled']);
+	const userInfo = useUserStore().userInfo;
+
+	// Enables the drawer from react-navigation
+	useEnableDrawer();
 
 	return (
-		<View style={tw`flex-1`}>
+		<ScreenContainer tabHeight={false} style={tw`gap-0 px-5 py-0`}>
 			<SectionList
-				sections={sections(debugState)}
-				contentContainerStyle={tw`py-4`}
-				ItemSeparatorComponent={SettingsItemDivider}
+				contentContainerStyle={tw`py-6`}
+				sections={sections(debugState, userInfo)}
 				renderItem={({ item }) => (
 					<SettingsItem
+						syncEnabled={syncEnabled.data}
+						comingSoon={item.comingSoon}
 						title={item.title}
 						leftIcon={item.icon}
 						onPress={() => navigation.navigate(item.navigateTo as any)}
+						rounded={item.rounded}
 					/>
 				)}
+				scrollEnabled={false}
 				renderSectionHeader={renderSectionHeader}
 				ListFooterComponent={<FooterComponent />}
 				showsVerticalScrollIndicator={false}
 				stickySectionHeadersEnabled={false}
 				initialNumToRender={50}
 			/>
-		</View>
+		</ScreenContainer>
 	);
 }
 
 function FooterComponent() {
 	const onClick = useDebugStateEnabler();
-
 	return (
-		<View style={tw`mb-4 mt-6 items-center`}>
+		<View
+			style={twStyle(Platform.OS === 'android' ? 'mb-14 mt-4' : 'mb-20 mt-5', 'items-center')}
+		>
 			<TouchableWithoutFeedback onPress={onClick}>
 				<Text style={tw`text-base font-bold text-ink`}>Spacedrive</Text>
 			</TouchableWithoutFeedback>
